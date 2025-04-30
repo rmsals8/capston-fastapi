@@ -300,8 +300,7 @@ class GooglePlacesTool:
                 print(f"Google Places API 호출 실패: {response.status_code}")
                 return None
             
-            # 인코딩 처리 개선: UTF-8 명시적 사용
-            data = json.loads(response.content.decode('utf-8'))
+            data = response.json()
             
             if data['status'] == 'OK' and data.get('candidates') and len(data['candidates']) > 0:
                 candidate = data['candidates'][0]
@@ -376,8 +375,7 @@ class GooglePlacesTool:
                 print(f"Nearby Places API 호출 실패: {response.status_code}")
                 return None
             
-            # 인코딩 처리 개선: UTF-8 명시적 사용
-            data = json.loads(response.content.decode('utf-8'))
+            data = response.json()
             
             if data['status'] == 'OK' and data.get('results') and len(data['results']) > 0:
                 # 결과 중 첫 번째 장소 선택
@@ -420,8 +418,7 @@ class GooglePlacesTool:
                 print(f"Place Details API 호출 실패: {response.status_code}")
                 return None
             
-            # 인코딩 처리 개선: UTF-8 명시적 사용
-            data = json.loads(response.content.decode('utf-8'))
+            data = response.json()
             
             if data['status'] == 'OK' and data.get('result'):
                 result = data['result']
@@ -554,16 +551,12 @@ def check_place_open(operating_hours, check_time):
     
     return open_minutes <= check_minutes <= close_minutes
 
-# 인코딩 문제 해결을 위한 개선된 JSON 파싱 함수
 def safe_parse_json(json_str):
     """
     안전하게 JSON을 파싱하고, 필요한 경우 수정합니다.
-    인코딩 처리를 명시적으로 처리합니다.
     """
     try:
         # 기본 파싱 시도
-        # 두 번째 파일의 접근 방식처럼 명시적으로 문자열 처리
-        json_str = json_str.strip()
         return json.loads(json_str)
     except json.JSONDecodeError as e:
         print(f"JSON 파싱 오류: {str(e)}")
@@ -582,18 +575,9 @@ def safe_parse_json(json_str):
         print(f"수정된 JSON: {fixed_str}")
         
         try:
-            # 두 번째 파일처럼 명시적으로 파싱
             return json.loads(fixed_str)
         except json.JSONDecodeError:
-            # 2. 정규식을 사용하여 JSON 부분만 추출 시도
-            json_match = re.search(r'({[\s\S]*})', fixed_str)
-            if json_match:
-                try:
-                    return json.loads(json_match.group(1))
-                except:
-                    pass
-            
-            # 3. 마지막 수단: 기본 구조 반환
+            # 2. 마지막 수단: 기본 구조 반환
             print("JSON 파싱 실패. 기본 구조 반환.")
             return {
                 "fixedSchedules": [],
@@ -661,8 +645,8 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
     # GooglePlacesTool 초기화
     places_tool = GooglePlacesTool()
     
-    # 복사본 생성하여 원본 데이터 보존 - 인코딩 문제 방지를 위해 dumps/loads 사용
-    enhanced_data = json.loads(json.dumps(schedule_data, ensure_ascii=False))
+    # 복사본 생성하여 원본 데이터 보존
+    enhanced_data = json.loads(json.dumps(schedule_data))
     
     # 고정 일정 처리
     if "fixedSchedules" in enhanced_data and isinstance(enhanced_data["fixedSchedules"], list):
@@ -850,6 +834,8 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
     print("위치 정보 보강 완료")
     return enhanced_data
 
+# ----- 엔드포인트 정의 -----
+
 @app.get("/")
 async def root():
     return {"message": "일정 추출 및 최적화 API가 실행 중입니다. POST /extract-schedule 또는 POST /api/v1/schedules/optimize-1 엔드포인트를 사용하세요."}
@@ -860,6 +846,39 @@ async def extract_schedule(request: ScheduleRequest):
     음성 입력에서 일정을 추출하고 위치 정보를 보강합니다.
     """
     try:
+        # 인코딩 테스트 함수
+        def test_encoding(text):
+            """한글 인코딩 테스트 함수"""
+            print(f"원본 텍스트: {text}")
+            
+            # 다양한 인코딩으로 변환 테스트
+            encodings = ['utf-8', 'euc-kr', 'cp949']
+            for enc in encodings:
+                try:
+                    encoded = text.encode(enc)
+                    decoded = encoded.decode(enc)
+                    print(f"{enc} 인코딩 변환 결과: {decoded}, 변환 성공: {text == decoded}")
+                except Exception as e:
+                    print(f"{enc} 인코딩 변환 실패: {str(e)}")
+            
+            # JSON 직렬화/역직렬화 테스트
+            try:
+                json_str = json.dumps({"text": text}, ensure_ascii=False)
+                json_obj = json.loads(json_str)
+                print(f"JSON 변환 결과: {json_obj['text']}, 변환 성공: {text == json_obj['text']}")
+            except Exception as e:
+                print(f"JSON 변환 실패: {str(e)}")
+        
+        # 시스템 인코딩 정보 확인
+        import sys
+        import locale
+        print(f"시스템 기본 인코딩: {sys.getdefaultencoding()}")
+        print(f"로케일 인코딩: {locale.getpreferredencoding()}")
+        print(f"파이썬 파일 기본 인코딩: {sys.getfilesystemencoding()}")
+        
+        # 입력 텍스트 인코딩 테스트
+        print(f"\n음성 입력 인코딩 테스트:")
+        test_encoding(request.voice_input)
         print(f"음성 입력 받음: '{request.voice_input}'")
         
         # 1. LangChain을 사용한 일정 추출
@@ -868,21 +887,76 @@ async def extract_schedule(request: ScheduleRequest):
         
         # 2. 체인 실행
         try:
-            result = chain.invoke({"input": request.voice_input})
-            # UTF-8 명시적 처리를 위해 JSON을 문자열로 변환 후 다시 파싱
+            # 입력 데이터 인코딩 확인
+            input_data = {"input": request.voice_input}
+            input_json = json.dumps(input_data, ensure_ascii=False)
+            print(f"LangChain 입력 JSON: {input_json}")
+            
+            result = chain.invoke(input_data)
+            
+            # 결과 타입 확인
+            print(f"LangChain 응답 타입: {type(result)}")
+            
+            # 결과 인코딩 테스트
             if isinstance(result, dict):
-                result_str = json.dumps(result, ensure_ascii=False)
-                result = json.loads(result_str)
-            print(f"LangChain 응답: {json.dumps(result, ensure_ascii=False)}")
+                result_json = json.dumps(result, ensure_ascii=False)
+                print(f"LangChain 응답 JSON: {result_json[:200]}...")
+                
+                # 결과 한글 데이터 인코딩 테스트
+                if "fixedSchedules" in result and result["fixedSchedules"]:
+                    first_fixed = result["fixedSchedules"][0]
+                    if "name" in first_fixed:
+                        print(f"\n고정 일정 이름 인코딩 테스트:")
+                        test_encoding(first_fixed["name"])
+                    if "location" in first_fixed:
+                        print(f"\n고정 일정 위치 인코딩 테스트:")
+                        test_encoding(first_fixed["location"])
+                
+                if "flexibleSchedules" in result and result["flexibleSchedules"]:
+                    first_flexible = result["flexibleSchedules"][0]
+                    if "name" in first_flexible:
+                        print(f"\n유연 일정 이름 인코딩 테스트:")
+                        test_encoding(first_flexible["name"])
+                    if "location" in first_flexible:
+                        print(f"\n유연 일정 위치 인코딩 테스트:")
+                        test_encoding(first_flexible["location"])
+            else:
+                print(f"LangChain 응답 (문자열): {result[:200]}...")
+                
         except Exception as e:
             print(f"LangChain 처리 중 오류: {str(e)}")
             # 오류 발생 시 문자열 추출 시도
             if hasattr(e, 'response') and hasattr(e.response, 'content'):
-                # UTF-8로 명시적 디코딩
-                content = e.response.content.decode('utf-8')
+                try:
+                    # UTF-8로 명시적 디코딩
+                    content = e.response.content.decode('utf-8')
+                    print(f"오류 응답 디코딩 (UTF-8): {content[:200]}...")
+                except UnicodeDecodeError:
+                    # UTF-8 디코딩 실패 시 다른 인코딩 시도
+                    try:
+                        content = e.response.content.decode('cp949')
+                        print(f"오류 응답 디코딩 (CP949): {content[:200]}...")
+                    except:
+                        try:
+                            content = e.response.content.decode('euc-kr')
+                            print(f"오류 응답 디코딩 (EUC-KR): {content[:200]}...")
+                        except:
+                            # 마지막 수단: 바이너리 출력
+                            content = str(e.response.content)
+                            print(f"오류 응답 (바이너리): {content[:200]}...")
+                
                 json_match = re.search(r'({[\s\S]*})', content)
                 if json_match:
-                    result = safe_parse_json(json_match.group(1))
+                    json_str = json_match.group(1)
+                    print(f"추출된 JSON 문자열: {json_str[:200]}...")
+                    # JSON 문자열 인코딩 테스트
+                    try:
+                        print(f"\nJSON 문자열 인코딩 테스트:")
+                        test_encoding(json_str[:100]) # 첫 100자만 테스트
+                    except:
+                        print("JSON 문자열 인코딩 테스트 실패")
+                    
+                    result = safe_parse_json(json_str)
                 else:
                     raise HTTPException(status_code=500, detail=f"LLM 응답 처리 실패: {str(e)}")
             else:
@@ -891,28 +965,566 @@ async def extract_schedule(request: ScheduleRequest):
         # 3. 결과가 문자열인 경우 안전하게 JSON 파싱
         if isinstance(result, str):
             print("응답이 문자열 형태입니다. JSON 추출 시도...")
-            # 두 번째 파일의 접근 방식처럼 정규식으로 JSON 부분 추출
+            # 문자열 인코딩 테스트
+            try:
+                print(f"\n응답 문자열 인코딩 테스트 (처음 100자):")
+                test_encoding(result[:100])
+            except:
+                print("응답 문자열 인코딩 테스트 실패")
+            
+            # 정규식으로 JSON 추출
             json_match = re.search(r'({[\s\S]*})', result)
             if json_match:
-                schedule_data = safe_parse_json(json_match.group(1))
+                json_str = json_match.group(1)
+                print(f"정규식으로 추출한 JSON: {json_str[:200]}...")
+                # 추출된 JSON 인코딩 테스트
+                try:
+                    print(f"\n추출된 JSON 인코딩 테스트 (처음 100자):")
+                    test_encoding(json_str[:100])
+                except:
+                    print("추출된 JSON 인코딩 테스트 실패")
+                
+                schedule_data = safe_parse_json(json_str)
             else:
+                print("정규식으로 JSON 추출 실패, 전체 문자열로 시도")
                 schedule_data = safe_parse_json(result)
         else:
-            # 이미 파싱된 객체
-            schedule_data = result
+            # 이미 파싱된 객체를 인코딩 이슈 방지를 위해 다시 직렬화/역직렬화
+            try:
+                result_json = json.dumps(result, ensure_ascii=False)
+                print(f"결과 직렬화 성공: {result_json[:200]}...")
+                schedule_data = json.loads(result_json)
+                print("결과 역직렬화 성공")
+            except Exception as e:
+                print(f"결과 직렬화/역직렬화 실패: {str(e)}")
+                # 실패 시 원본 사용
+                schedule_data = result
+        
+        # 스케줄 데이터 구조 확인
+        print(f"\n스케줄 데이터 구조:")
+        print(f"고정 일정 수: {len(schedule_data.get('fixedSchedules', []))}")
+        print(f"유연 일정 수: {len(schedule_data.get('flexibleSchedules', []))}")
+        
+        # 각 일정 데이터 인코딩 테스트
+        if "fixedSchedules" in schedule_data and schedule_data["fixedSchedules"]:
+            first_fixed = schedule_data["fixedSchedules"][0]
+            print(f"\n첫 번째 고정 일정 인코딩 테스트:")
+            if "name" in first_fixed:
+                print(f"이름: {first_fixed['name']}")
+                test_encoding(first_fixed["name"])
+            if "location" in first_fixed:
+                print(f"위치: {first_fixed['location']}")
+                test_encoding(first_fixed["location"])
+        
+        if "flexibleSchedules" in schedule_data and schedule_data["flexibleSchedules"]:
+            first_flexible = schedule_data["flexibleSchedules"][0]
+            print(f"\n첫 번째 유연 일정 인코딩 테스트:")
+            if "name" in first_flexible:
+                print(f"이름: {first_flexible['name']}")
+                test_encoding(first_flexible["name"])
+            if "location" in first_flexible:
+                print(f"위치: {first_flexible['location']}")
+                test_encoding(first_flexible["location"])
         
         # 4. 향상된 위치 정보 보강
-        enhanced_data = enhance_location_data(schedule_data)
-        print(f"향상된 위치 정보 보강된 일정 데이터: {json.dumps(enhanced_data, ensure_ascii=False)}")
+        print(f"\n위치 정보 보강 시작...")
+        try:
+            enhanced_data = enhance_location_data(schedule_data)
+            
+            # 보강된 데이터 인코딩 테스트
+            enhanced_json = json.dumps(enhanced_data, ensure_ascii=False)
+            print(f"보강된 데이터 직렬화 성공, 길이: {len(enhanced_json)}")
+            print(f"보강된 데이터 JSON 샘플: {enhanced_json[:200]}...")
+            
+            # 한 번 더 직렬화/역직렬화로 인코딩 문제 방지
+            enhanced_data = json.loads(enhanced_json)
+            print("보강된 데이터 역직렬화 성공")
+            
+            # 보강된 데이터 인코딩 테스트
+            if "fixedSchedules" in enhanced_data and enhanced_data["fixedSchedules"]:
+                first_fixed = enhanced_data["fixedSchedules"][0]
+                print(f"\n보강된 첫 번째 고정 일정 인코딩 테스트:")
+                if "name" in first_fixed:
+                    print(f"이름: {first_fixed['name']}")
+                    test_encoding(first_fixed["name"])
+                if "location" in first_fixed:
+                    print(f"위치: {first_fixed['location']}")
+                    test_encoding(first_fixed["location"])
+            
+            if "flexibleSchedules" in enhanced_data and enhanced_data["flexibleSchedules"]:
+                first_flexible = enhanced_data["flexibleSchedules"][0]
+                print(f"\n보강된 첫 번째 유연 일정 인코딩 테스트:")
+                if "name" in first_flexible:
+                    print(f"이름: {first_flexible['name']}")
+                    test_encoding(first_flexible["name"])
+                if "location" in first_flexible:
+                    print(f"위치: {first_flexible['location']}")
+                    test_encoding(first_flexible["location"])
+            
+            print(f"향상된 위치 정보 보강된 일정 데이터: {enhanced_json[:200]}...")
+        except Exception as e:
+            print(f"위치 정보 보강 중 오류 발생: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            # 오류 발생 시 원본 데이터 사용
+            enhanced_data = schedule_data
         
         # 5. Pydantic 모델로 변환하여 응답 검증
-        response = ExtractScheduleResponse(**enhanced_data)
-        
-        return response
-        
+        try:
+            print(f"\nPydantic 모델 변환 시작...")
+            
+            # 모델 변환 전 인코딩 확인을 위해 두 번 직렬화-역직렬화
+            final_json = json.dumps(enhanced_data, ensure_ascii=False)
+            final_data = json.loads(final_json)
+            
+            response = ExtractScheduleResponse(**final_data)
+            print("Pydantic 모델 변환 성공")
+            
+            # 응답 데이터 샘플 출력
+            if response.fixedSchedules:
+                print(f"응답 고정 일정 첫 항목 이름: {response.fixedSchedules[0].name}")
+                test_encoding(response.fixedSchedules[0].name)
+                print(f"응답 고정 일정 첫 항목 위치: {response.fixedSchedules[0].location}")
+                test_encoding(response.fixedSchedules[0].location)
+            
+            if response.flexibleSchedules:
+                print(f"응답 유연 일정 첫 항목 이름: {response.flexibleSchedules[0].name}")
+                test_encoding(response.flexibleSchedules[0].name)
+                print(f"응답 유연 일정 첫 항목 위치: {response.flexibleSchedules[0].location}")
+                test_encoding(response.flexibleSchedules[0].location)
+            
+            # 커스텀 JSONResponse로 반환하는 대신 Pydantic 모델 직접 반환
+            # (FastAPI가 알아서 적절히 직렬화해주므로 charset 설정 불필요)
+            return response
+            
+        except Exception as e:
+            print(f"Pydantic 모델 변환 오류: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            
+            # 마지막 수단: 직접 JSONResponse 반환
+            from fastapi.responses import JSONResponse
+            
+            # 직접 직렬화
+            final_json = json.dumps(enhanced_data, ensure_ascii=False)
+            print(f"직접 직렬화 성공, 길이: {len(final_json)}")
+            
+            # JSON으로 다시 파싱
+            final_data = json.loads(final_json)
+            
+            return JSONResponse(
+                content=final_data,
+                media_type="application/json; charset=utf-8"
+            )
+            
     except Exception as e:
         print(f"일정 처리 오류: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"일정 처리 중 오류 발생: {str(e)}")
+
+@app.post("/api/v1/schedules/optimize-1", response_model=OptimizeScheduleResponse)
+async def optimize_schedules(request: OptimizeScheduleRequest):
+    """
+    추출된 일정을 최적화하고 경로 정보를 생성합니다.
+    """
+    try:
+        # 인코딩 테스트 함수
+        def test_encoding(text):
+            """한글 인코딩 테스트 함수"""
+            print(f"원본 텍스트: {text}")
+            
+            # 다양한 인코딩으로 변환 테스트
+            encodings = ['utf-8', 'euc-kr', 'cp949']
+            for enc in encodings:
+                try:
+                    encoded = text.encode(enc)
+                    decoded = encoded.decode(enc)
+                    print(f"{enc} 인코딩 변환 결과: {decoded}, 변환 성공: {text == decoded}")
+                except Exception as e:
+                    print(f"{enc} 인코딩 변환 실패: {str(e)}")
+            
+            # JSON 직렬화/역직렬화 테스트
+            try:
+                json_str = json.dumps({"text": text}, ensure_ascii=False)
+                json_obj = json.loads(json_str)
+                print(f"JSON 변환 결과: {json_obj['text']}, 변환 성공: {text == json_obj['text']}")
+            except Exception as e:
+                print(f"JSON 변환 실패: {str(e)}")
+
+        # 시스템 인코딩 정보 확인
+        import sys
+        import locale
+        print(f"시스템 기본 인코딩: {sys.getdefaultencoding()}")
+        print(f"로케일 인코딩: {locale.getpreferredencoding()}")
+        print(f"파이썬 파일 기본 인코딩: {sys.getfilesystemencoding()}")
+
+        print(f"일정 최적화 요청 받음: 고정 일정 {len(request.fixedSchedules)}개, 유연 일정 {len(request.flexibleSchedules)}개")
+        
+        # 입력 데이터 인코딩 테스트
+        if request.fixedSchedules:
+            first_fixed = request.fixedSchedules[0]
+            print("\n첫 번째 고정 일정 인코딩 테스트:")
+            test_encoding(first_fixed.name)
+            test_encoding(first_fixed.location)
+        
+        if request.flexibleSchedules:
+            first_flexible = request.flexibleSchedules[0]
+            print("\n첫 번째 유연 일정 인코딩 테스트:")
+            test_encoding(first_flexible.name)
+            test_encoding(first_flexible.location)
+        
+        # 1. 모든 일정을 수집 (고정 일정 + 유연 일정)
+        all_schedules = []
+        fixed_schedule_map = {}
+        
+        # 고정 일정 처리
+        for schedule in request.fixedSchedules:
+            fixed_schedule_map[schedule.id] = schedule
+            all_schedules.append({
+                "id": schedule.id,
+                "name": schedule.name,
+                "start_time": parse_datetime(schedule.startTime),
+                "end_time": parse_datetime(schedule.endTime),
+                "duration": schedule.duration,
+                "priority": schedule.priority,
+                "latitude": schedule.latitude,
+                "longitude": schedule.longitude,
+                "location": schedule.location,
+                "type": schedule.type,
+                "flexible": False
+            })
+        
+        # 유연 일정 처리
+        for schedule in request.flexibleSchedules:
+            all_schedules.append({
+                "id": schedule.id,
+                "name": schedule.name,
+                "start_time": None,  # 아직 시간이 정해지지 않음
+                "end_time": None,
+                "duration": schedule.duration,
+                "priority": schedule.priority,
+                "latitude": schedule.latitude,
+                "longitude": schedule.longitude,
+                "location": schedule.location,
+                "type": schedule.type,
+                "flexible": True
+            })
+        
+        # 수집한 데이터 인코딩 테스트
+        if all_schedules:
+            print("\n첫 번째 수집 일정 인코딩 테스트:")
+            test_encoding(all_schedules[0]["name"])
+            test_encoding(all_schedules[0]["location"])
+        
+        # 2. 일정 최적화
+        
+        # 고정 일정을 시간순으로 정렬
+        fixed_schedules = [s for s in all_schedules if not s["flexible"]]
+        fixed_schedules.sort(key=lambda x: x["start_time"])
+        
+        # 유연 일정을 우선순위순으로 정렬
+        flexible_schedules = [s for s in all_schedules if s["flexible"]]
+        flexible_schedules.sort(key=lambda x: x["priority"])
+        
+        # 최적화된 일정 목록
+        optimized_schedules = []
+        
+        # 고정 일정 먼저 추가
+        optimized_schedules.extend(fixed_schedules)
+        
+        # 가장 늦은 고정 일정을 기준으로 유연 일정 시간 할당
+        if fixed_schedules:
+            # 마지막 고정 일정 시간 이후로 배치
+            last_fixed = fixed_schedules[-1]
+            current_time = last_fixed["end_time"]
+            
+            # 유연 일정에 시간 배정
+            for schedule in flexible_schedules:
+                start_time = current_time
+                end_time = start_time + datetime.timedelta(minutes=schedule["duration"])
+                
+                schedule["start_time"] = start_time
+                schedule["end_time"] = end_time
+                
+                # 다음 일정의 시작 시간 설정
+                current_time = end_time
+                
+                # 최적화된 일정에 추가
+                optimized_schedules.append(schedule)
+        else:
+            # 고정 일정이 없는 경우, 현재 시간부터 시작
+            current_time = datetime.datetime.now()
+            
+            # 유연 일정에 시간 배정
+            for schedule in flexible_schedules:
+                start_time = current_time
+                end_time = start_time + datetime.timedelta(minutes=schedule["duration"])
+                
+                schedule["start_time"] = start_time
+                schedule["end_time"] = end_time
+                
+                # 다음 일정의 시작 시간 설정
+                current_time = end_time
+                
+                # 최적화된 일정에 추가
+                optimized_schedules.append(schedule)
+        
+        # 시간순으로 재정렬
+        optimized_schedules.sort(key=lambda x: x["start_time"])
+        
+        # 최적화된 일정 인코딩 테스트
+        if optimized_schedules:
+            print("\n최적화된 첫 번째 일정 인코딩 테스트:")
+            test_encoding(optimized_schedules[0]["name"])
+            test_encoding(optimized_schedules[0]["location"])
+        
+        # 3. 경로 정보 계산
+        route_segments = []
+        total_distance = 0.0
+        total_time = 0
+        
+        for i in range(len(optimized_schedules) - 1):
+            from_schedule = optimized_schedules[i]
+            to_schedule = optimized_schedules[i+1]
+            
+            distance = calculate_distance(
+                from_schedule["latitude"], from_schedule["longitude"],
+                to_schedule["latitude"], to_schedule["longitude"]
+            )
+            
+            estimated_time = calculate_travel_time(distance)
+            
+            # 경로 정보 추가
+            route_segments.append({
+                "fromLocation": from_schedule["name"],
+                "toLocation": to_schedule["name"],
+                "distance": round(distance, 3),
+                "estimatedTime": estimated_time,
+                "trafficRate": 1.0,
+                "recommendedRoute": None,
+                "realTimeTraffic": None
+            })
+            
+            # 총 거리와 시간 누적
+            total_distance += distance
+            total_time += estimated_time
+        
+        # 경로 정보 인코딩 테스트
+        if route_segments:
+            print("\n경로 정보 인코딩 테스트:")
+            test_encoding(route_segments[0]["fromLocation"])
+            test_encoding(route_segments[0]["toLocation"])
+        
+        # 4. 일정 분석 정보 생성
+        schedule_analyses = {}
+        
+        for schedule in optimized_schedules:
+            # 장소 카테고리 유추
+            category = get_place_category(schedule["name"])
+            
+            # 영업 시간 유추
+            operating_hours = generate_operating_hours(schedule["name"])
+            
+            # 영업 여부 확인
+            is_open = check_place_open(operating_hours, schedule["start_time"])
+            
+            # 혼잡도 임의 생성 (0.3~0.7 사이)
+            crowd_level = round(random.uniform(0.3, 0.7), 1)
+            
+            # 추천 정보 생성
+            crowd_level_status = "보통"
+            if crowd_level < 0.4:
+                crowd_level_status = "여유"
+            elif crowd_level > 0.6:
+                crowd_level_status = "혼잡"
+            
+            best_visit_time = f"영업시간({operating_hours['open']}-{operating_hours['close']}) 중 방문 권장"
+            estimated_duration = f"{schedule['duration'] // 60:02d}:{schedule['duration'] % 60:02d}"
+            
+            # 장소명 추출 (인코딩 테스트)
+            place_name_parts = schedule['name'].split(' - ')
+            if len(place_name_parts) > 0:
+                place_name = place_name_parts[0]
+                print(f"\n장소명 분리 테스트 ('{schedule['name']}' -> '{place_name}')")
+                test_encoding(place_name)
+            else:
+                place_name = schedule['name']
+            
+            # 장소 상세 정보
+            place_details = {
+                "phoneNumber": "",
+                "address": schedule["location"],
+                "isOpen": is_open,
+                "operatingHours": operating_hours,
+                "name": f"<b>{place_name}</b>",
+                "rating": 0.0,
+                "recommendation": {
+                    "crowdLevelStatus": crowd_level_status,
+                    "bestVisitTime": best_visit_time,
+                    "estimatedDuration": estimated_duration
+                },
+                "location": {
+                    "latitude": schedule["latitude"],
+                    "longitude": schedule["longitude"],
+                    "name": place_name
+                },
+                "id": "null",
+                "crowdLevel": crowd_level,
+                "category": category
+            }
+            
+            # 일정 분석 정보 추가
+            schedule_analyses[schedule["name"]] = {
+                "locationName": schedule["name"],
+                "bestTimeWindow": None,
+                "crowdLevel": crowd_level,
+                "placeDetails": place_details,
+                "optimizationFactors": None,
+                "visitRecommendation": None
+            }
+        
+        # 일정 분석 정보 인코딩 테스트
+        if schedule_analyses:
+            first_key = next(iter(schedule_analyses))
+            print("\n일정 분석 정보 인코딩 테스트:")
+            test_encoding(first_key)
+            test_encoding(schedule_analyses[first_key]["locationName"])
+            test_encoding(schedule_analyses[first_key]["placeDetails"]["name"])
+            test_encoding(schedule_analyses[first_key]["placeDetails"]["address"])
+        
+        # 5. 응답 구성
+        
+        # 최적화된 일정 목록
+        optimized_schedules_response = []
+        
+        for schedule in optimized_schedules:
+            # LocationString 생성 - 인코딩 테스트 추가
+            if schedule["flexible"]:
+                # 유연 일정은 JSON 형태로 위치 정보 저장
+                location_info = {
+                    "address": schedule["location"],
+                    "distance": round(random.uniform(300, 700), 6),
+                    "latitude": schedule["latitude"],
+                    "name": schedule["name"].split(" - ")[1] if " - " in schedule["name"] else schedule["name"],
+                    "rating": round(random.uniform(3.5, 4.5), 1),
+                    "source": "foursquare",
+                    "longitude": schedule["longitude"]
+                }
+                
+                # locationString 인코딩 테스트
+                print(f"\nlocationString JSON 인코딩 테스트:")
+                test_encoding(location_info["name"])
+                test_encoding(location_info["address"])
+                
+                # 수정된 부분: ensure_ascii=False와 separators 옵션 추가
+                location_string = json.dumps(location_info, ensure_ascii=False, separators=(',', ':'))
+                
+                # 직렬화 결과 확인
+                print(f"locationString 직렬화 결과 샘플: {location_string[:100]}...")
+                
+                # 역직렬화 테스트
+                try:
+                    decoded_location = json.loads(location_string)
+                    print(f"locationString 역직렬화 성공: {decoded_location['name']}")
+                except Exception as e:
+                    print(f"locationString 역직렬화 실패: {str(e)}")
+            else:
+                # 고정 일정은 주소만 저장
+                location_string = schedule["location"]
+                print(f"\n고정 일정 locationString: {location_string}")
+                test_encoding(location_string)
+            
+            # 시간 포맷팅
+            start_time_str = schedule["start_time"].isoformat()
+            end_time_str = schedule["end_time"].isoformat()
+            
+            # 이름 분리 테스트
+            name_parts = schedule["name"].split(" - ")
+            display_name = name_parts[0] if " - " in schedule["name"] else schedule["name"]
+            print(f"\n일정 이름 분리 테스트: '{schedule['name']}' -> '{display_name}'")
+            test_encoding(display_name)
+            
+            optimized_schedule = {
+                "id": schedule["id"],
+                "name": schedule["name"],
+                "location": {
+                    "latitude": schedule["latitude"],
+                    "longitude": schedule["longitude"],
+                    "name": display_name
+                },
+                "startTime": start_time_str,
+                "endTime": end_time_str,
+                "type": schedule["type"],
+                "priority": schedule["priority"],
+                "category": None,
+                "estimatedDuration": schedule["duration"],
+                "expectedCost": 0.0,
+                "visitPreference": None,
+                "locationString": location_string,
+                "constraints": {
+                    "earliestStartTime": None,
+                    "latestEndTime": None,
+                    "requiresWeekend": False,
+                    "minimumDuration": 0,
+                    "maxTravelDistance": 0.0
+                },
+                "duration": format_duration(schedule["duration"]),
+                "flexible": schedule["flexible"]
+            }
+            
+            optimized_schedules_response.append(optimized_schedule)
+        
+        # 메트릭 정보
+        metrics = {
+            "totalDistance": round(total_distance, 3),
+            "totalTime": total_time,
+            "totalScore": 0.0,
+            "successRate": 0.0,
+            "componentScores": None,
+            "optimizationReasons": None
+        }
+        
+        # 최종 응답 구성
+        response = {
+            "optimizedSchedules": optimized_schedules_response,
+            "routeSegments": route_segments,
+            "metrics": metrics,
+            "alternativeOptions": None,
+            "scheduleAnalyses": schedule_analyses
+        }
+        
+        # 최종 응답 인코딩 테스트
+        print("\n최종 응답 직렬화 테스트:")
+        try:
+            # FastAPI의 기본 JSON 인코딩이 아닌 직접 직렬화 테스트
+            response_json = json.dumps(response, ensure_ascii=False, separators=(',', ':'))
+            print(f"응답 직렬화 성공, 길이: {len(response_json)}")
+            print(f"응답 JSON 샘플: {response_json[:200]}...")
+            
+            # 역직렬화 테스트
+            test_obj = json.loads(response_json)
+            if test_obj["optimizedSchedules"]:
+                first_schedule = test_obj["optimizedSchedules"][0]
+                print(f"역직렬화된 첫 번째 일정 이름: {first_schedule['name']}")
+                print(f"역직렬화 성공!")
+        except Exception as e:
+            print(f"응답 직렬화/역직렬화 오류: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+        
+        # FastAPI의 기본 JSON 인코딩 대신 직접 JSON 응답 반환
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            content=response,
+            media_type="application/json; charset=utf-8"
+        )
+        
+    except Exception as e:
+        print(f"일정 최적화 중 오류 발생: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"일정 최적화 중 오류 발생: {str(e)}")
 
 # 서버 시작 코드
 if __name__ == "__main__":
