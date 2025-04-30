@@ -1091,7 +1091,7 @@ async def optimize_schedules(request: OptimizeScheduleRequest):
         optimized_schedules_response = []
         
         for schedule in optimized_schedules:
-            # LocationString 생성
+            # LocationString 생성 - 이 부분이 수정됨 (한글 인코딩 문제 해결)
             if schedule["flexible"]:
                 # 유연 일정은 JSON 형태로 위치 정보 저장
                 location_info = {
@@ -1103,7 +1103,8 @@ async def optimize_schedules(request: OptimizeScheduleRequest):
                     "source": "foursquare",
                     "longitude": schedule["longitude"]
                 }
-                location_string = json.dumps(location_info)
+                # 수정된 부분: ensure_ascii=False와 separators 옵션 추가
+                location_string = json.dumps(location_info, ensure_ascii=False, separators=(',', ':'))
             else:
                 # 고정 일정은 주소만 저장
                 location_string = schedule["location"]
@@ -1161,7 +1162,12 @@ async def optimize_schedules(request: OptimizeScheduleRequest):
             "scheduleAnalyses": schedule_analyses
         }
         
-        return response
+        # FastAPI의 기본 JSON 인코딩 대신 직접 JSON 응답 반환
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            content=response,
+            media_type="application/json; charset=utf-8"
+        )
         
     except Exception as e:
         print(f"일정 최적화 중 오류 발생: {str(e)}")
