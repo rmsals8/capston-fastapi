@@ -1,0 +1,3771 @@
+{
+    "keyword_to_types": {
+      "__식음료_카테고리__": {},
+      
+      "__카페_관련_키워드__": {},
+      "카페": {
+        "includedTypes": ["cafe", "coffee_shop", "tea_house", "bakery", "dessert_restaurant", "dessert_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant", "meal_takeaway", "bar"]
+      },
+      "커피": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "커피숍": {
+        "includedTypes": ["coffee_shop", "cafe"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "스타벅스": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "투썸플레이스": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "이디야": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "할리스": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "파스쿠치": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "커피빈": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "블루보틀": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "폴바셋": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "탐앤탐스": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "메가커피": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "컴포즈커피": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "빽다방": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "더벤티": {
+        "includedTypes": ["cafe", "coffee_shop"],
+        "excludedTypes": ["restaurant", "fast_food_restaurant"]
+      },
+      "디저트": {
+        "includedTypes": ["dessert_restaurant", "dessert_shop", "cafe", "bakery", "ice_cream_shop"],
+        "excludedTypes": ["restaurant", "meal_takeaway"]
+      },
+      "베이커리": {
+        "includedTypes": ["bakery"],
+        "excludedTypes": ["restaurant"]
+      },
+      "빵집": {
+        "includedTypes": ["bakery"],
+        "excludedTypes": ["restaurant"]
+      },
+      "제과": {
+        "includedTypes": ["bakery", "confectionery"],
+        "excludedTypes": ["restaurant"]
+      },
+      "케이크": {
+        "includedTypes": ["bakery", "dessert_shop", "dessert_restaurant"],
+        "excludedTypes": ["restaurant"]
+      },
+      "쿠키": {
+        "includedTypes": ["bakery", "dessert_shop"],
+        "excludedTypes": ["restaurant"]
+      },
+      "마카롱": {
+        "includedTypes": ["bakery", "dessert_shop"],
+        "excludedTypes": ["restaurant"]
+      },
+      "크로플": {
+        "includedTypes": ["cafe", "bakery", "dessert_shop"],
+        "excludedTypes": ["restaurant"]
+      },
+      "와플": {
+        "includedTypes": ["cafe", "bakery", "dessert_shop"],
+        "excludedTypes": ["restaurant"]
+      },
+      "빙수": {
+        "includedTypes": ["cafe", "dessert_shop", "ice_cream_shop"],
+        "excludedTypes": ["restaurant"]
+      },
+      "아이스크림": {
+        "includedTypes": ["ice_cream_shop", "dessert_shop"],
+        "excludedTypes": ["restaurant"]
+      },
+      "젤라또": {
+        "includedTypes": ["ice_cream_shop", "dessert_shop"],
+        "excludedTypes": ["restaurant"]
+      },
+      "주스": {
+        "includedTypes": ["juice_shop", "cafe"],
+        "excludedTypes": ["restaurant"]
+      },
+      "스무디": {
+        "includedTypes": ["juice_shop", "cafe"],
+        "excludedTypes": ["restaurant"]
+      },
+      "타르트": {
+        "includedTypes": ["bakery", "dessert_shop"],
+        "excludedTypes": ["restaurant"]
+      },
+      "브런치": {
+        "includedTypes": ["cafe", "brunch_restaurant", "restaurant"],
+        "excludedTypes": ["fast_food_restaurant"]
+      },
+      "차": {
+        "includedTypes": ["tea_house", "cafe"],
+        "excludedTypes": ["restaurant"]
+      },
+      "티룸": {
+        "includedTypes": ["tea_house", "cafe"],
+        "excludedTypes": ["restaurant"]
+      },
+      "북카페": {
+        "includedTypes": ["cafe", "book_store"],
+        "excludedTypes": ["restaurant"]
+      },
+      "동물카페": {
+        "includedTypes": ["cat_cafe", "dog_cafe", "cafe"],
+        "excludedTypes": ["restaurant"]
+      },
+      "고양이카페": {
+        "includedTypes": ["cat_cafe", "cafe"],
+        "excludedTypes": ["restaurant"]
+      },
+      "애견카페": {
+        "includedTypes": ["dog_cafe", "cafe"],
+        "excludedTypes": ["restaurant"]
+      },
+      
+      "__식당_관련_키워드__": {},
+      "식당": {
+        "includedTypes": ["restaurant", "korean_restaurant", "japanese_restaurant", "chinese_restaurant"],
+        "excludedTypes": ["cafe", "fast_food_restaurant"]
+      },
+      "음식점": {
+        "includedTypes": ["restaurant", "korean_restaurant", "japanese_restaurant", "chinese_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "맛집": {
+        "includedTypes": ["restaurant", "korean_restaurant", "japanese_restaurant", "chinese_restaurant"],
+        "excludedTypes": ["cafe", "fast_food_restaurant"]
+      },
+      "레스토랑": {
+        "includedTypes": ["restaurant", "fine_dining_restaurant"],
+        "excludedTypes": ["cafe", "fast_food_restaurant"]
+      },
+      "고급식당": {
+        "includedTypes": ["fine_dining_restaurant", "restaurant"],
+        "excludedTypes": ["cafe", "fast_food_restaurant"]
+      },
+      "뷔페": {
+        "includedTypes": ["buffet_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "푸드코트": {
+        "includedTypes": ["food_court"],
+        "excludedTypes": ["cafe"]
+      },
+      "한식": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "김치찌개": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "된장찌개": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "비빔밥": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "불고기": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "갈비": {
+        "includedTypes": ["korean_restaurant", "restaurant", "barbecue_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "삼겹살": {
+        "includedTypes": ["korean_restaurant", "restaurant", "barbecue_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "곱창": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "찜닭": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "국밥": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "냉면": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "부대찌개": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "설렁탕": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "감자탕": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "보쌈": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "수육": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "족발": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "순대": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "백반": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "한정식": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "전골": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "닭갈비": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "해장국": {
+        "includedTypes": ["korean_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "일식": {
+        "includedTypes": ["japanese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "초밥": {
+        "includedTypes": ["japanese_restaurant", "sushi_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "스시": {
+        "includedTypes": ["japanese_restaurant", "sushi_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "회": {
+        "includedTypes": ["japanese_restaurant", "seafood_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "돈카츠": {
+        "includedTypes": ["japanese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "라멘": {
+        "includedTypes": ["japanese_restaurant", "ramen_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "우동": {
+        "includedTypes": ["japanese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "소바": {
+        "includedTypes": ["japanese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "일본카레": {
+        "includedTypes": ["japanese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "오코노미야키": {
+        "includedTypes": ["japanese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "타코야키": {
+        "includedTypes": ["japanese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "샤브샤브": {
+        "includedTypes": ["japanese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "덮밥": {
+        "includedTypes": ["japanese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "중식": {
+        "includedTypes": ["chinese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "짜장면": {
+        "includedTypes": ["chinese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "짬뽕": {
+        "includedTypes": ["chinese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "탕수육": {
+        "includedTypes": ["chinese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "볶음밥": {
+        "includedTypes": ["chinese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "마라탕": {
+        "includedTypes": ["chinese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "마라샹궈": {
+        "includedTypes": ["chinese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "훠궈": {
+        "includedTypes": ["chinese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "북경오리": {
+        "includedTypes": ["chinese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "양식": {
+        "includedTypes": ["italian_restaurant", "french_restaurant", "american_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "파스타": {
+        "includedTypes": ["italian_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "리조또": {
+        "includedTypes": ["italian_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "스테이크": {
+        "includedTypes": ["steak_house", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "피자": {
+        "includedTypes": ["pizza_restaurant", "italian_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "필라프": {
+        "includedTypes": ["restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "프렌치": {
+        "includedTypes": ["french_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "태국": {
+        "includedTypes": ["thai_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "타이": {
+        "includedTypes": ["thai_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "팟타이": {
+        "includedTypes": ["thai_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "똠양꿍": {
+        "includedTypes": ["thai_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "인도": {
+        "includedTypes": ["indian_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "커리": {
+        "includedTypes": ["indian_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "난": {
+        "includedTypes": ["indian_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "탄두리": {
+        "includedTypes": ["indian_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "베트남": {
+        "includedTypes": ["vietnamese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "쌀국수": {
+        "includedTypes": ["vietnamese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "반미": {
+        "includedTypes": ["vietnamese_restaurant", "restaurant", "sandwich_shop"],
+        "excludedTypes": ["cafe"]
+      },
+      "분짜": {
+        "includedTypes": ["vietnamese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "월남쌈": {
+        "includedTypes": ["vietnamese_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "멕시칸": {
+        "includedTypes": ["mexican_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "타코": {
+        "includedTypes": ["mexican_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "부리또": {
+        "includedTypes": ["mexican_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "퀘사디아": {
+        "includedTypes": ["mexican_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "나초": {
+        "includedTypes": ["mexican_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "해산물": {
+        "includedTypes": ["seafood_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "생선구이": {
+        "includedTypes": ["seafood_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "조개구이": {
+        "includedTypes": ["seafood_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "랍스터": {
+        "includedTypes": ["seafood_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "게요리": {
+        "includedTypes": ["seafood_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "굴": {
+        "includedTypes": ["seafood_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "바비큐": {
+        "includedTypes": ["barbecue_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "비건": {
+        "includedTypes": ["vegan_restaurant", "vegetarian_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "채식": {
+        "includedTypes": ["vegetarian_restaurant", "vegan_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "할랄": {
+        "includedTypes": ["halal_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      
+      "__패스트푸드_관련_키워드__": {},
+      "패스트푸드": {
+        "includedTypes": ["fast_food_restaurant", "hamburger_restaurant", "pizza_restaurant", "meal_takeaway"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "햄버거": {
+        "includedTypes": ["hamburger_restaurant", "fast_food_restaurant"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "맥도날드": {
+        "includedTypes": ["hamburger_restaurant", "fast_food_restaurant"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "버거킹": {
+        "includedTypes": ["hamburger_restaurant", "fast_food_restaurant"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "롯데리아": {
+        "includedTypes": ["hamburger_restaurant", "fast_food_restaurant"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "맘스터치": {
+        "includedTypes": ["hamburger_restaurant", "fast_food_restaurant"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "노브랜드버거": {
+        "includedTypes": ["hamburger_restaurant", "fast_food_restaurant"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "쉐이크쉑": {
+        "includedTypes": ["hamburger_restaurant", "fast_food_restaurant"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "치킨": {
+        "includedTypes": ["fast_food_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "BBQ": {
+        "includedTypes": ["fast_food_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "BHC": {
+        "includedTypes": ["fast_food_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "교촌치킨": {
+        "includedTypes": ["fast_food_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "굽네치킨": {
+        "includedTypes": ["fast_food_restaurant", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "도미노피자": {
+        "includedTypes": ["pizza_restaurant", "fast_food_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "피자헛": {
+        "includedTypes": ["pizza_restaurant", "fast_food_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "미스터피자": {
+        "includedTypes": ["pizza_restaurant", "fast_food_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "피자스쿨": {
+        "includedTypes": ["pizza_restaurant", "fast_food_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "맛있는피자": {
+        "includedTypes": ["pizza_restaurant", "fast_food_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "샌드위치": {
+        "includedTypes": ["sandwich_shop", "fast_food_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "서브웨이": {
+        "includedTypes": ["sandwich_shop", "fast_food_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "퀴즈노스": {
+        "includedTypes": ["sandwich_shop", "fast_food_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "토스트": {
+        "includedTypes": ["sandwich_shop", "fast_food_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "이삭토스트": {
+        "includedTypes": ["sandwich_shop", "fast_food_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "고르곤졸라": {
+        "includedTypes": ["sandwich_shop", "fast_food_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "핫도그": {
+        "includedTypes": ["fast_food_restaurant", "meal_takeaway"],
+        "excludedTypes": ["cafe"]
+      },
+      "분식": {
+        "includedTypes": ["fast_food_restaurant", "korean_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "떡볶이": {
+        "includedTypes": ["fast_food_restaurant", "korean_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "김밥": {
+        "includedTypes": ["fast_food_restaurant", "korean_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "라면": {
+        "includedTypes": ["fast_food_restaurant", "korean_restaurant", "ramen_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "쫄면": {
+        "includedTypes": ["fast_food_restaurant", "korean_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "순대": {
+        "includedTypes": ["fast_food_restaurant", "korean_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "튀김": {
+        "includedTypes": ["fast_food_restaurant", "korean_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "타코벨": {
+        "includedTypes": ["fast_food_restaurant", "mexican_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "KFC": {
+        "includedTypes": ["fast_food_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      
+      "__주점_관련_키워드__": {},
+      "주점": {
+        "includedTypes": ["bar", "wine_bar", "pub"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "술집": {
+        "includedTypes": ["bar", "pub"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "포차": {
+        "includedTypes": ["bar", "pub", "korean_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "호프": {
+        "includedTypes": ["pub", "bar"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "치킨집": {
+        "includedTypes": ["restaurant", "pub"],
+        "excludedTypes": ["cafe"]
+      },
+      "맥주": {
+        "includedTypes": ["bar", "pub"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "와인바": {
+        "includedTypes": ["wine_bar", "bar"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "이자카야": {
+        "includedTypes": ["bar", "japanese_restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "바": {
+        "includedTypes": ["bar", "wine_bar"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "칵테일바": {
+        "includedTypes": ["bar"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "루프탑바": {
+        "includedTypes": ["bar", "restaurant"],
+        "excludedTypes": ["cafe"]
+      },
+      "펍": {
+        "includedTypes": ["pub", "bar"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "노래방": {
+        "includedTypes": ["karaoke", "night_club"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "노래주점": {
+        "includedTypes": ["karaoke", "bar"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "클럽": {
+        "includedTypes": ["night_club"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "룸살롱": {
+        "includedTypes": ["night_club", "bar"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "바텐더": {
+        "includedTypes": ["bar"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      
+      "__쇼핑_카테고리__": {},
+      
+      "__대형매장_관련_키워드__": {},
+      "쇼핑몰": {
+        "includedTypes": ["shopping_mall"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "백화점": {
+        "includedTypes": ["department_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "롯데백화점": {
+        "includedTypes": ["department_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "신세계백화점": {
+        "includedTypes": ["department_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "현대백화점": {
+        "includedTypes": ["department_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "갤러리아": {
+        "includedTypes": ["department_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "AK플라자": {
+        "includedTypes": ["department_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "마트": {
+        "includedTypes": ["supermarket", "grocery_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "이마트": {
+        "includedTypes": ["supermarket", "grocery_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "홈플러스": {
+        "includedTypes": ["supermarket", "grocery_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "롯데마트": {
+        "includedTypes": ["supermarket", "grocery_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "코스트코": {
+        "includedTypes": ["supermarket", "grocery_store", "warehouse_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "트레이더스": {
+        "includedTypes": ["supermarket", "grocery_store", "warehouse_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "노브랜드": {
+        "includedTypes": ["supermarket", "grocery_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "마트픽": {
+        "includedTypes": ["supermarket", "grocery_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "슈퍼마켓": {
+        "includedTypes": ["supermarket", "grocery_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "편의점": {
+        "includedTypes": ["convenience_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "CU": {
+        "includedTypes": ["convenience_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "GS25": {
+        "includedTypes": ["convenience_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "세븐일레븐": {
+        "includedTypes": ["convenience_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "이마트24": {
+        "includedTypes": ["convenience_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "미니스톱": {
+        "includedTypes": ["convenience_store"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "시장": {
+        "includedTypes": ["market"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "전통시장": {
+        "includedTypes": ["market"],
+        "excludedTypes": ["cafe", "restaurant"]
+      },
+      "재래시장": {
+      "includedTypes": ["market"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "남대문시장": {
+      "includedTypes": ["market"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "동대문시장": {
+      "includedTypes": ["market"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "광장시장": {
+      "includedTypes": ["market"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "통인시장": {
+      "includedTypes": ["market"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "아울렛": {
+      "includedTypes": ["shopping_mall"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "복합쇼핑몰": {
+      "includedTypes": ["shopping_mall"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "몰": {
+      "includedTypes": ["shopping_mall"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "스타필드": {
+      "includedTypes": ["shopping_mall"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "타임스퀘어": {
+      "includedTypes": ["shopping_mall"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "코엑스": {
+      "includedTypes": ["shopping_mall", "convention_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__의류_관련_키워드__": {},
+    "의류": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "옷가게": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "패션": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "유니클로": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자라": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "H&M": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "언더아머": {
+      "includedTypes": ["clothing_store", "sporting_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "나이키": {
+      "includedTypes": ["clothing_store", "shoe_store", "sporting_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "아디다스": {
+      "includedTypes": ["clothing_store", "shoe_store", "sporting_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "뉴발란스": {
+      "includedTypes": ["clothing_store", "shoe_store", "sporting_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "데상트": {
+      "includedTypes": ["clothing_store", "sporting_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "무신사": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "정장": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "한복": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "아동복": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "유아복": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "남성복": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "여성복": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "신발": {
+      "includedTypes": ["shoe_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "신발가게": {
+      "includedTypes": ["shoe_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "운동화": {
+      "includedTypes": ["shoe_store", "sporting_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "구두": {
+      "includedTypes": ["shoe_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "ABC마트": {
+      "includedTypes": ["shoe_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "속옷": {
+      "includedTypes": ["clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "보석": {
+      "includedTypes": ["jewelry_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "쥬얼리": {
+      "includedTypes": ["jewelry_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "액세서리": {
+      "includedTypes": ["jewelry_store", "clothing_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "시계": {
+      "includedTypes": ["jewelry_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__전자제품_관련_키워드__": {},
+    "전자제품": {
+      "includedTypes": ["electronics_store", "cell_phone_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "가전제품": {
+      "includedTypes": ["electronics_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "전자랜드": {
+      "includedTypes": ["electronics_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "하이마트": {
+      "includedTypes": ["electronics_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "전자상가": {
+      "includedTypes": ["electronics_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "컴퓨터": {
+      "includedTypes": ["electronics_store", "computer_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "노트북": {
+      "includedTypes": ["electronics_store", "computer_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "컴퓨터매장": {
+      "includedTypes": ["electronics_store", "computer_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "휴대폰": {
+      "includedTypes": ["cell_phone_store", "electronics_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "핸드폰": {
+      "includedTypes": ["cell_phone_store", "electronics_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "스마트폰": {
+      "includedTypes": ["cell_phone_store", "electronics_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "갤럭시": {
+      "includedTypes": ["cell_phone_store", "electronics_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "아이폰": {
+      "includedTypes": ["cell_phone_store", "electronics_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "삼성": {
+      "includedTypes": ["electronics_store", "cell_phone_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "애플": {
+      "includedTypes": ["electronics_store", "cell_phone_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "LG": {
+      "includedTypes": ["electronics_store", "cell_phone_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__가구_관련_키워드__": {},
+    "가구": {
+      "includedTypes": ["furniture_store", "home_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "이케아": {
+      "includedTypes": ["furniture_store", "home_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "니토리": {
+      "includedTypes": ["furniture_store", "home_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "한샘": {
+      "includedTypes": ["furniture_store", "home_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "리바트": {
+      "includedTypes": ["furniture_store", "home_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "까사미아": {
+      "includedTypes": ["furniture_store", "home_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "돌체구스토": {
+      "includedTypes": ["furniture_store", "home_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "소파": {
+      "includedTypes": ["furniture_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "침대": {
+      "includedTypes": ["furniture_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "책상": {
+      "includedTypes": ["furniture_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "의자": {
+      "includedTypes": ["furniture_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "수납장": {
+      "includedTypes": ["furniture_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "인테리어": {
+      "includedTypes": ["home_goods_store", "furniture_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "커튼": {
+      "includedTypes": ["home_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "블라인드": {
+      "includedTypes": ["home_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "생활용품": {
+      "includedTypes": ["home_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "주방용품": {
+      "includedTypes": ["home_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "다이소": {
+      "includedTypes": ["home_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "철물점": {
+      "includedTypes": ["hardware_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "홈센터": {
+      "includedTypes": ["hardware_store", "home_improvement_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "공구": {
+      "includedTypes": ["hardware_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "페인트": {
+      "includedTypes": ["hardware_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__특수상점_관련_키워드__": {},
+    "애완용품": {
+      "includedTypes": ["pet_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "반려동물": {
+      "includedTypes": ["pet_store", "veterinary_care"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "펫샵": {
+      "includedTypes": ["pet_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "강아지용품": {
+      "includedTypes": ["pet_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "고양이용품": {
+      "includedTypes": ["pet_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "책방": {
+      "includedTypes": ["book_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "서점": {
+      "includedTypes": ["book_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "교보문고": {
+      "includedTypes": ["book_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "영풍문고": {
+      "includedTypes": ["book_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "알라딘": {
+      "includedTypes": ["book_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "꽃": {
+      "includedTypes": ["florist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "꽃집": {
+      "includedTypes": ["florist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "꽃배달": {
+      "includedTypes": ["florist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "선물": {
+      "includedTypes": ["gift_shop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "선물가게": {
+      "includedTypes": ["gift_shop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "기념품": {
+      "includedTypes": ["gift_shop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "문구": {
+      "includedTypes": ["stationery_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "문구점": {
+      "includedTypes": ["stationery_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "장난감": {
+      "includedTypes": ["toy_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "완구": {
+      "includedTypes": ["toy_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "토이저러스": {
+      "includedTypes": ["toy_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "레고": {
+      "includedTypes": ["toy_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "스포츠용품": {
+      "includedTypes": ["sporting_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "골프용품": {
+      "includedTypes": ["sporting_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자전거": {
+      "includedTypes": ["bicycle_store", "sporting_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "낚시용품": {
+      "includedTypes": ["sporting_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "캠핑용품": {
+      "includedTypes": ["sporting_goods_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "술": {
+      "includedTypes": ["liquor_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "주류": {
+      "includedTypes": ["liquor_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "와인": {
+      "includedTypes": ["liquor_store", "wine_bar"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "위스키": {
+      "includedTypes": ["liquor_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "담배": {
+      "includedTypes": ["tobacco_shop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "전자담배": {
+      "includedTypes": ["vape_shop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "게임": {
+      "includedTypes": ["video_game_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "게임매장": {
+      "includedTypes": ["video_game_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자동차부품": {
+      "includedTypes": ["auto_parts_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "미술용품": {
+      "includedTypes": ["art_supply_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "음악용품": {
+      "includedTypes": ["music_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "악기": {
+      "includedTypes": ["music_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "피아노": {
+      "includedTypes": ["music_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "기타": {
+      "includedTypes": ["music_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__교통_카테고리__": {},
+    
+    "__대중교통_관련_키워드__": {},
+    "버스정류장": {
+      "includedTypes": ["bus_station", "bus_stop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "버스정류소": {
+      "includedTypes": ["bus_station", "bus_stop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "버스터미널": {
+      "includedTypes": ["bus_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "지하철역": {
+      "includedTypes": ["subway_station", "transit_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "지하철": {
+      "includedTypes": ["subway_station", "transit_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "역": {
+      "includedTypes": ["subway_station", "train_station", "transit_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "기차역": {
+      "includedTypes": ["train_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "철도역": {
+      "includedTypes": ["train_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "KTX": {
+      "includedTypes": ["train_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "경전철": {
+      "includedTypes": ["light_rail_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "트램": {
+      "includedTypes": ["tram_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "택시": {
+      "includedTypes": ["taxi_stand"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "택시승강장": {
+      "includedTypes": ["taxi_stand"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "택시정류장": {
+      "includedTypes": ["taxi_stand"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "페리": {
+      "includedTypes": ["ferry_terminal"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "선착장": {
+      "includedTypes": ["ferry_terminal"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "항구": {
+      "includedTypes": ["ferry_terminal"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__공항_관련_키워드__": {},
+    "공항": {
+      "includedTypes": ["airport", "international_airport"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "국제공항": {
+      "includedTypes": ["international_airport", "airport"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "국내공항": {
+      "includedTypes": ["airport"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "인천공항": {
+      "includedTypes": ["international_airport", "airport"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "김포공항": {
+      "includedTypes": ["airport"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "김해공항": {
+      "includedTypes": ["airport"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "제주공항": {
+      "includedTypes": ["airport"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "헬리포트": {
+      "includedTypes": ["heliport"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "비행장": {
+      "includedTypes": ["airstrip", "airport"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__주차_및_환승_관련_키워드__": {},
+    "주차장": {
+      "includedTypes": ["parking", "parking_garage"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "공영주차장": {
+      "includedTypes": ["parking"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "민영주차장": {
+      "includedTypes": ["parking"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "주차타워": {
+      "includedTypes": ["parking_garage"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "환승주차장": {
+      "includedTypes": ["park_and_ride"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "렌터카": {
+      "includedTypes": ["car_rental"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "카셰어링": {
+      "includedTypes": ["car_sharing"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자전거대여": {
+      "includedTypes": ["bicycle_rental"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "따릉이": {
+      "includedTypes": ["bicycle_rental"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__기타_교통_관련_키워드__": {},
+    "휴게소": {
+      "includedTypes": ["rest_stop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "고속도로휴게소": {
+      "includedTypes": ["rest_stop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "졸음쉼터": {
+      "includedTypes": ["rest_stop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "트럭휴게소": {
+      "includedTypes": ["truck_stop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "전기차충전소": {
+      "includedTypes": ["electric_vehicle_charging_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "충전소": {
+      "includedTypes": ["electric_vehicle_charging_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "주유소": {
+      "includedTypes": ["gas_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "SK주유소": {
+      "includedTypes": ["gas_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "GS주유소": {
+      "includedTypes": ["gas_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "현대오일뱅크": {
+      "includedTypes": ["gas_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "LPG충전소": {
+      "includedTypes": ["gas_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__교육_카테고리__": {},
+    
+    "__대학_관련_키워드__": {},
+    "대학교": {
+      "includedTypes": ["university", "college"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "대학": {
+      "includedTypes": ["university", "college"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "캠퍼스": {
+      "includedTypes": ["university", "college"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "서울대": {
+      "includedTypes": ["university"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "고려대": {
+      "includedTypes": ["university"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "연세대": {
+      "includedTypes": ["university"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "이화여대": {
+      "includedTypes": ["university"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "성균관대": {
+      "includedTypes": ["university"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "한양대": {
+      "includedTypes": ["university"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "중앙대": {
+      "includedTypes": ["university"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "경희대": {
+      "includedTypes": ["university"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "서강대": {
+      "includedTypes": ["university"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "가톨릭대": {
+      "includedTypes": ["university"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "건국대": {
+      "includedTypes": ["university"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "대학원": {
+      "includedTypes": ["university"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "전문대학": {
+      "includedTypes": ["community_college", "college"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "기술대학": {
+      "includedTypes": ["technical_college", "college"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__학교_관련_키워드__": {},
+    "학교": {
+      "includedTypes": ["school", "primary_school", "secondary_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "초등학교": {
+      "includedTypes": ["primary_school", "elementary_school", "school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "중학교": {
+      "includedTypes": ["middle_school", "secondary_school", "school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "고등학교": {
+      "includedTypes": ["high_school", "secondary_school", "school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "특수학교": {
+      "includedTypes": ["special_education_school", "school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "사립학교": {
+      "includedTypes": ["private_school", "school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "공립학교": {
+      "includedTypes": ["public_school", "school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "국제학교": {
+      "includedTypes": ["international_school", "school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "대안학교": {
+      "includedTypes": ["alternative_school", "school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "기숙학교": {
+      "includedTypes": ["boarding_school", "school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__특수_교육기관_관련_키워드__": {},
+    "유치원": {
+      "includedTypes": ["preschool", "kindergarten"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "어린이집": {
+      "includedTypes": ["preschool", "kindergarten", "childcare_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "어학원": {
+      "includedTypes": ["language_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "영어학원": {
+      "includedTypes": ["language_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "일본어학원": {
+      "includedTypes": ["language_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "중국어학원": {
+      "includedTypes": ["language_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "운전학원": {
+      "includedTypes": ["driving_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자동차학원": {
+      "includedTypes": ["driving_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "음악학원": {
+      "includedTypes": ["music_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "피아노학원": {
+      "includedTypes": ["music_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "바이올린학원": {
+      "includedTypes": ["music_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "미술학원": {
+      "includedTypes": ["art_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "그림학원": {
+      "includedTypes": ["art_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "요리학원": {
+      "includedTypes": ["cooking_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "컴퓨터학원": {
+      "includedTypes": ["computer_training_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "직업학교": {
+      "includedTypes": ["vocational_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "특수교육학교": {
+      "includedTypes": ["special_education_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "보육원": {
+      "includedTypes": ["childcare_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "학원": {
+      "includedTypes": ["language_school", "art_school", "music_school"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "과외센터": {
+      "includedTypes": ["tutoring_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "시험준비센터": {
+      "includedTypes": ["test_preparation_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__학습_관련_시설_키워드__": {},
+    "도서관": {
+      "includedTypes": ["library"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "공공도서관": {
+      "includedTypes": ["library"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "대학도서관": {
+      "includedTypes": ["library"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "어린이도서관": {
+      "includedTypes": ["library"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "연구센터": {
+      "includedTypes": ["research_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "연구소": {
+      "includedTypes": ["research_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "학술기관": {
+      "includedTypes": ["academic_institution"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "학습센터": {
+      "includedTypes": ["study_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__엔터테인먼트_및_여가_카테고리__": {},
+    
+    "__영화_공연_관련_키워드__": {},
+    "영화관": {
+      "includedTypes": ["movie_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "극장": {
+      "includedTypes": ["movie_theater", "theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "멀티플렉스": {
+      "includedTypes": ["movie_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "씨지브이": {
+      "includedTypes": ["movie_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "CGV": {
+      "includedTypes": ["movie_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "롯데시네마": {
+      "includedTypes": ["movie_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "메가박스": {
+      "includedTypes": ["movie_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "아트하우스": {
+      "includedTypes": ["movie_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "독립영화관": {
+      "includedTypes": ["movie_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "비디오대여점": {
+      "includedTypes": ["movie_rental"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "공연장": {
+      "includedTypes": ["performing_arts_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "콘서트홀": {
+      "includedTypes": ["concert_hall"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "오페라하우스": {
+      "includedTypes": ["opera_house"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "코미디클럽": {
+      "includedTypes": ["comedy_club"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "연극": {
+      "includedTypes": ["theater", "performing_arts_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "뮤지컬": {
+      "includedTypes": ["theater", "performing_arts_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "오페라": {
+      "includedTypes": ["opera_house", "performing_arts_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "콘서트": {
+      "includedTypes": ["concert_hall"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "필하모닉홀": {
+      "includedTypes": ["philharmonic_hall", "concert_hall"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "클래식": {
+      "includedTypes": ["concert_hall", "philharmonic_hall"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "원형극장": {
+      "includedTypes": ["amphitheater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자동차극장": {
+      "includedTypes": ["drive_in_theater", "movie_theater"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__놀이동산_게임_관련_키워드__": {},
+    "놀이공원": {
+      "includedTypes": ["amusement_park", "theme_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "테마파크": {
+      "includedTypes": ["theme_park", "amusement_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "에버랜드": {
+      "includedTypes": ["amusement_park", "theme_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "롯데월드": {
+      "includedTypes": ["amusement_park", "theme_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "서울랜드": {
+      "includedTypes": ["amusement_park", "theme_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "캐리비안베이": {
+      "includedTypes": ["water_park", "amusement_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "워터파크": {
+      "includedTypes": ["water_park", "amusement_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "오락실": {
+      "includedTypes": ["arcade", "video_arcade", "amusement_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "게임센터": {
+      "includedTypes": ["arcade", "video_arcade", "amusement_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "볼링장": {
+      "includedTypes": ["bowling_alley"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "볼링": {
+      "includedTypes": ["bowling_alley"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "롤러장": {
+      "includedTypes": ["roller_rink"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "레이저태그": {
+      "includedTypes": ["laser_tag", "amusement_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "방탈출": {
+      "includedTypes": ["escape_room", "amusement_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "VR체험": {
+      "includedTypes": ["vr_center", "amusement_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "VR방": {
+      "includedTypes": ["vr_center", "amusement_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "카지노": {
+      "includedTypes": ["casino"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "대관람차": {
+      "includedTypes": ["ferris_wheel", "amusement_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "롤러코스터": {
+      "includedTypes": ["roller_coaster", "amusement_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__문화시설_관련_키워드__": {},
+    "박물관": {
+      "includedTypes": ["museum"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "국립박물관": {
+      "includedTypes": ["museum"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "역사박물관": {
+      "includedTypes": ["historical_museum", "museum"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "과학박물관": {
+      "includedTypes": ["science_museum", "museum"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "어린이박물관": {
+      "includedTypes": ["children_museum", "museum"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "전쟁박물관": {
+      "includedTypes": ["war_museum", "museum"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "미술관": {
+      "includedTypes": ["art_gallery", "museum"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "갤러리": {
+      "includedTypes": ["art_gallery"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "아트스튜디오": {
+      "includedTypes": ["art_studio", "art_gallery"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "전시센터": {
+      "includedTypes": ["exhibition_center", "art_gallery"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "기념물": {
+      "includedTypes": ["monument"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "조각상": {
+      "includedTypes": ["sculpture", "monument"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "문화센터": {
+      "includedTypes": ["cultural_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "역사적랜드마크": {
+      "includedTypes": ["historical_landmark", "historical_place"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "문화랜드마크": {
+      "includedTypes": ["cultural_landmark"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "천문대": {
+      "includedTypes": ["planetarium"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "수족관": {
+      "includedTypes": ["aquarium"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "아쿠아리움": {
+      "includedTypes": ["aquarium"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__동물원_자연관찰_관련_키워드__": {},
+    "동물원": {
+      "includedTypes": ["zoo"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "야생동물공원": {
+      "includedTypes": ["wildlife_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "사파리파크": {
+      "includedTypes": ["safari_park", "wildlife_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "서울동물원": {
+      "includedTypes": ["zoo"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "서울대공원": {
+      "includedTypes": ["zoo", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "조류원": {
+      "includedTypes": ["bird_sanctuary", "zoo"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "야생동물보호구역": {
+      "includedTypes": ["wildlife_refuge"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "식물원": {
+      "includedTypes": ["botanical_garden"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__공원_레저_관련_키워드__": {},
+    "공원": {
+      "includedTypes": ["park", "national_park", "state_park", "city_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "국립공원": {
+      "includedTypes": ["national_park", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "주립공원": {
+      "includedTypes": ["state_park", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "도시공원": {
+      "includedTypes": ["city_park", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "한강공원": {
+      "includedTypes": ["park", "city_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "올림픽공원": {
+      "includedTypes": ["park", "city_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "월드컵공원": {
+      "includedTypes": ["park", "city_park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "애견공원": {
+      "includedTypes": ["dog_park", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "정원": {
+      "includedTypes": ["garden", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "광장": {
+      "includedTypes": ["plaza", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "놀이터": {
+      "includedTypes": ["playground", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "피크닉장소": {
+      "includedTypes": ["picnic_ground", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "캠핑장소": {
+      "includedTypes": ["camping_area", "park", "campground"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "바베큐장소": {
+      "includedTypes": ["barbecue_area", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "전망대": {
+      "includedTypes": ["observation_deck", "scenic_overlook"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "방문자센터": {
+      "includedTypes": ["visitor_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "관광명소": {
+      "includedTypes": ["tourist_attraction"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__액티비티_스포츠_관련_키워드__": {},
+    "모험스포츠센터": {
+      "includedTypes": ["adventure_sports_center", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자전거공원": {
+      "includedTypes": ["cycling_park", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "하이킹": {
+      "includedTypes": ["hiking_area", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "등산": {
+      "includedTypes": ["hiking_area", "park", "mountain"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "오프로딩": {
+      "includedTypes": ["off_roading_area"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "스케이트보드공원": {
+      "includedTypes": ["skateboard_park", "park"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "스포츠활동장소": {
+      "includedTypes": ["sports_activity_location", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "마리나": {
+      "includedTypes": ["marina"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "낚시터": {
+      "includedTypes": ["fishing_area", "fishing_pond"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "낚시전세": {
+      "includedTypes": ["fishing_charter"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__기타_여가시설_관련_키워드__": {},
+    "댄스홀": {
+      "includedTypes": ["dance_hall"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "연회장": {
+      "includedTypes": ["banquet_hall"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "이벤트장소": {
+      "includedTypes": ["event_venue"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "웨딩장소": {
+      "includedTypes": ["wedding_venue"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "커뮤니티센터": {
+      "includedTypes": ["community_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "노인센터": {
+      "includedTypes": ["senior_center", "community_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "청소년센터": {
+      "includedTypes": ["youth_center", "community_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "강당": {
+      "includedTypes": ["auditorium"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "컨벤션센터": {
+      "includedTypes": ["convention_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__스포츠_카테고리__": {},
+    
+    "__스포츠시설_관련_키워드__": {},
+    "경기장": {
+      "includedTypes": ["stadium", "arena", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "월드컵경기장": {
+      "includedTypes": ["stadium", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "종합운동장": {
+      "includedTypes": ["stadium", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "잠실경기장": {
+      "includedTypes": ["stadium", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "아레나": {
+      "includedTypes": ["arena", "stadium"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "스포츠컴플렉스": {
+      "includedTypes": ["sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "운동장": {
+      "includedTypes": ["athletic_field", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "골프장": {
+      "includedTypes": ["golf_course"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "골프연습장": {
+      "includedTypes": ["golf_course", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "테니스코트": {
+      "includedTypes": ["tennis_court", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "농구코트": {
+      "includedTypes": ["basketball_court", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "축구장": {
+      "includedTypes": ["football_field", "athletic_field", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "야구장": {
+      "includedTypes": ["baseball_field", "athletic_field", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "아이스스케이트장": {
+      "includedTypes": ["ice_skating_rink", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "수영장": {
+      "includedTypes": ["swimming_pool", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "스키리조트": {
+      "includedTypes": ["ski_resort", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "스키장": {
+      "includedTypes": ["ski_resort", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "경주트랙": {
+      "includedTypes": ["race_track", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "승마센터": {
+      "includedTypes": ["equestrian_center", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__피트니스_및_체육_관련_키워드__": {},
+    "체육관": {
+      "includedTypes": ["gym", "fitness_center", "sports_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "피트니스센터": {
+      "includedTypes": ["fitness_center", "gym"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "헬스장": {
+      "includedTypes": ["gym", "fitness_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "스포츠클럽": {
+      "includedTypes": ["sports_club", "fitness_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "복싱체육관": {
+      "includedTypes": ["boxing_gym", "gym"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "무술학원": {
+      "includedTypes": ["martial_arts_school", "gym"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "태권도장": {
+      "includedTypes": ["martial_arts_school", "gym"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "유도장": {
+      "includedTypes": ["martial_arts_school", "gym"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "합기도장": {
+      "includedTypes": ["martial_arts_school", "gym"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "댄스스튜디오": {
+      "includedTypes": ["dance_studio", "gym"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "스포츠코칭": {
+      "includedTypes": ["sports_coaching", "sports_club"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__건강_및_웰니스_카테고리__": {},
+    
+    "__병원_및_진료소_관련_키워드__": {},
+    "병원": {
+      "includedTypes": ["hospital", "medical_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "종합병원": {
+      "includedTypes": ["hospital"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "대학병원": {
+      "includedTypes": ["hospital"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "의원": {
+      "includedTypes": ["clinic", "doctor"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "의료센터": {
+      "includedTypes": ["medical_center", "hospital"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "응급실": {
+      "includedTypes": ["emergency_room", "hospital"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "긴급의료": {
+      "includedTypes": ["urgent_care", "emergency_room"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "의사": {
+      "includedTypes": ["doctor", "clinic"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "일반의": {
+      "includedTypes": ["general_practitioner", "doctor"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__전문_의료_관련_키워드__": {},
+    "치과": {
+      "includedTypes": ["dentist", "dental_clinic"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "치과의원": {
+      "includedTypes": ["dental_clinic", "dentist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "치아교정과": {
+      "includedTypes": ["orthodontist", "dentist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "안과": {
+      "includedTypes": ["ophthalmologist", "optometrist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "검안사": {
+      "includedTypes": ["optometrist", "ophthalmologist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "소아과": {
+      "includedTypes": ["pediatrician", "doctor"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "피부과": {
+      "includedTypes": ["dermatologist", "doctor"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "정형외과": {
+      "includedTypes": ["orthopedist", "doctor"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "성형외과": {
+      "includedTypes": ["plastic_surgeon", "doctor"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "산부인과": {
+      "includedTypes": ["gynecologist", "obstetrician", "doctor"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "산과": {
+      "includedTypes": ["obstetrician", "doctor"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "심장내과": {
+      "includedTypes": ["cardiologist", "doctor"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "신경과": {
+      "includedTypes": ["neurologist", "doctor"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "정신과": {
+      "includedTypes": ["psychiatrist", "doctor"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "심리상담사": {
+      "includedTypes": ["psychologist", "therapist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "치료사": {
+      "includedTypes": ["therapist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__대체의학_및_기타_의료_관련_키워드__": {},
+    "척추지압사": {
+      "includedTypes": ["chiropractor"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "물리치료사": {
+      "includedTypes": ["physical_therapist", "physiotherapist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "침술사": {
+      "includedTypes": ["acupuncturist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "마사지": {
+      "includedTypes": ["massage", "massage_therapist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "마사지샵": {
+      "includedTypes": ["massage", "massage_therapist"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "영양센터": {
+      "includedTypes": ["nutrition_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "영양사": {
+      "includedTypes": ["dietitian", "nutrition_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "발관리": {
+      "includedTypes": ["foot_care"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "보청기판매점": {
+      "includedTypes": ["hearing_aid_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__의료_검사_및_실험_관련_키워드__": {},
+    "의료검사실": {
+      "includedTypes": ["medical_lab"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "진단센터": {
+      "includedTypes": ["diagnostic_center", "medical_lab"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "혈액은행": {
+      "includedTypes": ["blood_bank"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "투석센터": {
+      "includedTypes": ["dialysis_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "재활센터": {
+      "includedTypes": ["rehab_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__약국_및_의료용품_관련_키워드__": {},
+    "약국": {
+      "includedTypes": ["pharmacy"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "드럭스토어": {
+      "includedTypes": ["drugstore", "pharmacy"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "의료용품점": {
+      "includedTypes": ["medical_supply_store"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__웰니스_및_스파_관련_키워드__": {},
+    "스파": {
+      "includedTypes": ["spa", "wellness_center"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "웰니스센터": {
+      "includedTypes": ["wellness_center", "spa"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "사우나": {
+      "includedTypes": ["sauna", "spa"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "찜질방": {
+      "includedTypes": ["sauna", "spa"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "온천": {
+      "includedTypes": ["hot_spring", "spa"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "태닝샵": {
+      "includedTypes": ["tanning_studio"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "미용실": {
+      "includedTypes": ["beauty_salon", "hair_salon"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "헤어샵": {
+      "includedTypes": ["hair_salon", "beauty_salon"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "헤어케어": {
+      "includedTypes": ["hair_care", "hair_salon"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "이발소": {
+      "includedTypes": ["barber_shop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "네일샵": {
+      "includedTypes": ["nail_salon"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "네일아트": {
+      "includedTypes": ["nail_salon"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "피부관리실": {
+      "includedTypes": ["skin_care_clinic"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__금융_카테고리__": {},
+    
+    "__은행_및_ATM_관련_키워드__": {},
+    "은행": {
+      "includedTypes": ["bank"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "ATM": {
+      "includedTypes": ["atm"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "현금인출기": {
+      "includedTypes": ["atm"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "신용조합": {
+      "includedTypes": ["credit_union"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "투자은행": {
+      "includedTypes": ["investment_bank", "bank"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "지역은행": {
+      "includedTypes": ["community_bank", "bank"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "사설은행": {
+      "includedTypes": ["private_bank", "bank"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "KB국민은행": {
+      "includedTypes": ["bank"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "신한은행": {
+      "includedTypes": ["bank"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "우리은행": {
+      "includedTypes": ["bank"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "하나은행": {
+      "includedTypes": ["bank"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "농협은행": {
+      "includedTypes": ["bank"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "기업은행": {
+      "includedTypes": ["bank"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "새마을금고": {
+      "includedTypes": ["credit_union"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "신협": {
+      "includedTypes": ["credit_union"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__금융_서비스_관련_키워드__": {},
+    "금융": {
+      "includedTypes": ["finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "투자회사": {
+      "includedTypes": ["investment_firm", "finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "재정자문": {
+      "includedTypes": ["financial_advisor", "finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "회계": {
+      "includedTypes": ["accounting", "finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "세무서비스": {
+      "includedTypes": ["tax_service", "accounting"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "보험대리점": {
+      "includedTypes": ["insurance_agency", "finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "보험": {
+      "includedTypes": ["insurance_agency", "finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "송금서비스": {
+      "includedTypes": ["money_transfer", "finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "환전소": {
+      "includedTypes": ["currency_exchange", "finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "전당포": {
+      "includedTypes": ["pawn_shop", "finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "수표현금화서비스": {
+      "includedTypes": ["check_cashing_service", "finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "중개업": {
+      "includedTypes": ["brokerage", "finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "증권거래소": {
+      "includedTypes": ["stock_exchange", "finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "대출기관": {
+      "includedTypes": ["loan_agency", "finance"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "주택담보대출": {
+      "includedTypes": ["mortgage_broker", "loan_agency"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "주식중개인": {
+      "includedTypes": ["stock_broker", "brokerage"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__정부_기관_카테고리__": {},
+    
+    "__행정_기관_관련_키워드__": {},
+    "관공서": {
+      "includedTypes": ["government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "시청": {
+      "includedTypes": ["city_hall", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "군청": {
+      "includedTypes": ["town_hall", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "면사무소": {
+      "includedTypes": ["village_hall", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "법원": {
+      "includedTypes": ["courthouse", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "대사관": {
+      "includedTypes": ["embassy", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "영사관": {
+      "includedTypes": ["consulate", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "지방행정기관": {
+      "includedTypes": ["local_government_office", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "세무서": {
+      "includedTypes": ["tax_office", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "여권사무소": {
+      "includedTypes": ["passport_office", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "비자사무소": {
+      "includedTypes": ["visa_office", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "등록사무소": {
+      "includedTypes": ["registry_office", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "민원센터": {
+      "includedTypes": ["public_service_center", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__우편_및_공공서비스_관련_키워드__": {},
+    "우체국": {
+      "includedTypes": ["post_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "우편서비스": {
+      "includedTypes": ["postal_service", "post_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "공공시설": {
+      "includedTypes": ["public_utility", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "수도시설": {
+      "includedTypes": ["water_utility", "public_utility"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "전기시설": {
+      "includedTypes": ["electric_utility", "public_utility"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "가스시설": {
+      "includedTypes": ["gas_utility", "public_utility"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "재활용센터": {
+      "includedTypes": ["recycling_center", "public_utility"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "폐기물관리": {
+      "includedTypes": ["waste_management", "public_utility"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__응급_서비스_관련_키워드__": {},
+    "소방서": {
+      "includedTypes": ["fire_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "경찰서": {
+      "includedTypes": ["police", "police_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "경찰": {
+      "includedTypes": ["police", "police_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "파출소": {
+      "includedTypes": ["neighborhood_police_station", "police_station"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "응급서비스": {
+      "includedTypes": ["emergency_service", "fire_station", "police"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "구급대": {
+      "includedTypes": ["ambulance_service", "emergency_service"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "민방위": {
+      "includedTypes": ["civil_defense", "emergency_service"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "해안경비대": {
+      "includedTypes": ["coast_guard", "emergency_service"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__군사_시설_관련_키워드__": {},
+    "군부대": {
+      "includedTypes": ["military_base"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "군사무소": {
+      "includedTypes": ["military_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "해군기지": {
+      "includedTypes": ["naval_base", "military_base"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "공군기지": {
+      "includedTypes": ["air_force_base", "military_base"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "육군기지": {
+      "includedTypes": ["army_base", "military_base"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__기타_공공시설_관련_키워드__": {},
+    "공중목욕탕": {
+      "includedTypes": ["public_bath"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "공중화장실": {
+      "includedTypes": ["public_bathroom"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "화장실": {
+      "includedTypes": ["public_bathroom"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "공중전화": {
+      "includedTypes": ["public_phone"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "공공서비스": {
+      "includedTypes": ["public_service", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "공공정보센터": {
+      "includedTypes": ["public_information_center", "government_office"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__숙박_카테고리__": {},
+    
+    "__호텔_관련_키워드__": {},
+    "숙박": {
+      "includedTypes": ["lodging", "hotel"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "호텔": {
+      "includedTypes": ["hotel", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "리조트호텔": {
+      "includedTypes": ["resort_hotel", "hotel", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "모텔": {
+      "includedTypes": ["motel", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "여관": {
+      "includedTypes": ["inn", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "장기체류호텔": {
+      "includedTypes": ["extended_stay_hotel", "hotel", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "부티크호텔": {
+      "includedTypes": ["boutique_hotel", "hotel", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "아파트형호텔": {
+      "includedTypes": ["apartment_hotel", "hotel", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "스위트호텔": {
+      "includedTypes": ["suite_hotel", "hotel", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "럭셔리호텔": {
+      "includedTypes": ["luxury_hotel", "hotel", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "저가호텔": {
+      "includedTypes": ["budget_hotel", "hotel", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__기타_숙박시설_관련_키워드__": {},
+    "호스텔": {
+      "includedTypes": ["hostel", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "게스트하우스": {
+      "includedTypes": ["guest_house", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "비앤비": {
+      "includedTypes": ["bed_and_breakfast", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "별장": {
+      "includedTypes": ["cottage", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "빌라": {
+      "includedTypes": ["villa", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "오두막": {
+      "includedTypes": ["cabin", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "캠핑캐빈": {
+      "includedTypes": ["camping_cabin", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "캠핑장": {
+      "includedTypes": ["campground", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "RV파크": {
+      "includedTypes": ["rv_park", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "개인객실": {
+      "includedTypes": ["private_guest_room", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "농장체험숙박": {
+      "includedTypes": ["farmstay", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "료칸": {
+      "includedTypes": ["japanese_inn", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "민슈쿠": {
+      "includedTypes": ["budget_japanese_inn", "lodging"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__자동차_카테고리__": {},
+    
+    "__자동차_판매_및_대여_관련_키워드__": {},
+    "자동차딜러": {
+      "includedTypes": ["car_dealer"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자동차대리점": {
+      "includedTypes": ["car_dealership", "car_dealer"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "중고차딜러": {
+      "includedTypes": ["used_car_dealer", "car_dealer"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "중고차매장": {
+      "includedTypes": ["used_car_dealer", "car_dealer"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "렌터카": {
+      "includedTypes": ["car_rental"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "트럭렌탈": {
+      "includedTypes": ["truck_rental", "car_rental"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "RV렌탈": {
+      "includedTypes": ["rv_rental", "car_rental"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "오토바이딜러": {
+      "includedTypes": ["motorcycle_dealer"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "보트딜러": {
+      "includedTypes": ["boat_dealer"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__자동차_서비스_관련_키워드__": {},
+    "자동차수리": {
+      "includedTypes": ["car_repair", "auto_repair"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "카센터": {
+      "includedTypes": ["car_repair", "auto_repair"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "세차장": {
+      "includedTypes": ["car_wash"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자동차디테일링": {
+      "includedTypes": ["auto_detailing", "car_wash"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "오일교체소": {
+      "includedTypes": ["oil_change_station", "car_repair"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자동차판금도장": {
+      "includedTypes": ["auto_body_shop", "car_repair"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "타이어점": {
+      "includedTypes": ["tire_shop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "매연검사소": {
+      "includedTypes": ["smog_check_station", "car_inspection"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자동차검사소": {
+      "includedTypes": ["car_inspection"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "견인서비스": {
+      "includedTypes": ["towing_service"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자동차유리점": {
+      "includedTypes": ["auto_glass_shop"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자동차전기서비스": {
+      "includedTypes": ["auto_electrical_service", "car_repair"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자동차경보기설치": {
+      "includedTypes": ["car_alarm_installer"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자동차오디오설치": {
+      "includedTypes": ["car_audio_installer"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "자동차내장재": {
+      "includedTypes": ["car_upholstery"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__종교_시설_카테고리__": {},
+    
+    "__종교_시설_관련_키워드__": {},
+    "종교시설": {
+      "includedTypes": ["place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "교회": {
+      "includedTypes": ["church", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "성당": {
+      "includedTypes": ["cathedral", "church", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "대성당": {
+      "includedTypes": ["cathedral", "church", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "예배당": {
+      "includedTypes": ["chapel", "church", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "모스크": {
+      "includedTypes": ["mosque", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "이슬람사원": {
+      "includedTypes": ["mosque", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "유대교회당": {
+      "includedTypes": ["synagogue", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "힌두사원": {
+      "includedTypes": ["hindu_temple", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "불교사원": {
+      "includedTypes": ["buddhist_temple", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "절": {
+      "includedTypes": ["buddhist_temple", "temple", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "사원": {
+      "includedTypes": ["temple", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "수도원": {
+      "includedTypes": ["monastery", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "신사": {
+      "includedTypes": ["shrine", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "선교소": {
+      "includedTypes": ["mission", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "수녀원": {
+      "includedTypes": ["convent", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "종교센터": {
+      "includedTypes": ["religious_center", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "교구회관": {
+      "includedTypes": ["parish_hall", "place_of_worship"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__주거_시설_카테고리__": {},
+    
+    "__주거_시설_관련_키워드__": {},
+    "주택단지": {
+      "includedTypes": ["housing_complex", "residential_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "아파트단지": {
+      "includedTypes": ["apartment_complex", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "아파트": {
+      "includedTypes": ["apartment_building", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "콘도미니엄": {
+      "includedTypes": ["condominium_complex", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "주거단지": {
+      "includedTypes": ["residential_complex", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "통제주거지역": {
+      "includedTypes": ["gated_community", "residential_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "이동식주택단지": {
+      "includedTypes": ["mobile_home_park", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "노인주택": {
+      "includedTypes": ["senior_housing", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "은퇴자커뮤니티": {
+      "includedTypes": ["retirement_community", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "생활보조시설": {
+      "includedTypes": ["assisted_living_facility", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "기숙사": {
+      "includedTypes": ["dormitory", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "주택개발": {
+      "includedTypes": ["housing_development", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "단독주택": {
+      "includedTypes": ["single_family_home", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "타운하우스": {
+      "includedTypes": ["townhouse", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "듀플렉스": {
+      "includedTypes": ["duplex", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "트리플렉스": {
+      "includedTypes": ["triplex", "housing_complex"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    
+    "__서비스_카테고리__": {},
+    
+    "__전문_서비스_관련_키워드__": {},
+    "변호사": {
+      "includedTypes": ["lawyer", "law_firm"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "법률사무소": {
+      "includedTypes": ["law_firm", "lawyer"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "공증사": {
+      "includedTypes": ["notary", "law_firm"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "부동산중개소": {
+      "includedTypes": ["real_estate_agency"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "부동산": {
+      "includedTypes": ["real_estate_agency"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "부동산감정사": {
+      "includedTypes": ["real_estate_appraiser", "real_estate_agency"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "마케팅회사": {
+      "includedTypes": ["marketing_agency"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "광고회사": {
+      "includedTypes": ["advertising_agency"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "홍보회사": {
+      "includedTypes": ["public_relations"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "컨설팅회사": {
+      "includedTypes": ["consulting_agency"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "취업알선소": {
+      "includedTypes": ["employment_agency"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "보안서비스": {
+      "includedTypes": ["security_service"],
+      "excludedTypes": ["cafe", "restaurant"]
+    },
+    "사설탐정": {
+      "includedTypes": ["private_investigator"],
+      "excludedTypes": ["cafe", "restaurant"]
+    }
+  },
+  "time_of_day_filters": {
+    "morning": {
+      "includedTypes": ["cafe", "bakery", "breakfast_restaurant"],
+      "excludedTypes": ["bar", "night_club"]
+    },
+    "afternoon": {
+      "includedTypes": ["restaurant", "cafe", "shopping_mall", "park"],
+      "excludedTypes": ["night_club"]
+    },
+    "evening": {
+      "includedTypes": ["restaurant", "movie_theater", "bar"],
+      "excludedTypes": []
+    },
+    "night": {
+      "includedTypes": ["bar", "night_club", "restaurant"],
+      "excludedTypes": []
+    }
+  },
+  "weather_filters": {
+    "sunny": {
+      "includedTypes": ["park", "beach", "amusement_park"],
+      "excludedTypes": []
+    },
+    "rainy": {
+      "includedTypes": ["shopping_mall", "movie_theater", "museum", "cafe"],
+      "excludedTypes": ["park", "beach", "amusement_park"]
+    },
+    "cold": {
+      "includedTypes": ["shopping_mall", "movie_theater", "museum", "cafe", "restaurant"],
+      "excludedTypes": ["beach", "water_park"]
+    },
+    "hot": {
+      "includedTypes": ["swimming_pool", "water_park", "ice_cream_shop", "beach"],
+      "excludedTypes": []
+    }
+  },
+  "transportation_filters": {
+    "walk": {
+      "radius": 1000,
+      "includedTypes": ["restaurant", "cafe", "convenience_store", "pharmacy"],
+      "excludedTypes": []
+    },
+    "bike": {
+      "radius": 3000,
+      "includedTypes": ["restaurant", "cafe", "park", "shopping_mall"],
+      "excludedTypes": []
+    },
+    "public_transit": {
+      "radius": 10000,
+      "includedTypes": ["restaurant", "shopping_mall", "museum", "amusement_park"],
+      "excludedTypes": []
+    },
+    "car": {
+      "radius": 30000,
+      "includedTypes": ["restaurant", "shopping_mall", "amusement_park", "national_park"],
+      "excludedTypes": []
+    }
+  },
+  "activity_filters": {
+    "dining": {
+      "includedTypes": ["restaurant", "cafe", "bakery", "food"],
+      "excludedTypes": []
+    },
+    "shopping": {
+      "includedTypes": ["shopping_mall", "department_store", "clothing_store", "supermarket"],
+      "excludedTypes": []
+    },
+    "entertainment": {
+      "includedTypes": ["movie_theater", "amusement_park", "bowling_alley", "night_club"],
+      "excludedTypes": []
+    },
+    "culture": {
+      "includedTypes": ["museum", "art_gallery", "library", "theater"],
+      "excludedTypes": []
+    },
+    "education": {
+      "includedTypes": ["university", "school", "library", "book_store"],
+      "excludedTypes": []
+    },
+    "fitness": {
+      "includedTypes": ["gym", "fitness_center", "swimming_pool", "sports_complex"],
+      "excludedTypes": []
+    },
+    "relaxation": {
+      "includedTypes": ["spa", "park", "beach", "massage"],
+      "excludedTypes": []
+    },
+    "health": {
+      "includedTypes": ["hospital", "doctor", "pharmacy", "medical_center"],
+      "excludedTypes": []
+    },
+    "outdoor": {
+      "includedTypes": ["park", "hiking_area", "beach", "botanical_garden"],
+      "excludedTypes": []
+    },
+    "business": {
+      "includedTypes": ["corporate_office", "bank", "accounting", "consulting_agency"],
+      "excludedTypes": []
+    }
+  },
+  "user_group_filters": {
+    "family": {
+      "includedTypes": ["amusement_park", "zoo", "museum", "park", "restaurant"],
+      "excludedTypes": ["bar", "night_club"]
+    },
+    "children": {
+      "includedTypes": ["playground", "amusement_park", "zoo", "ice_cream_shop", "water_park"],
+      "excludedTypes": ["bar", "night_club"]
+    },
+    "teenagers": {
+      "includedTypes": ["movie_theater", "bowling_alley", "arcade", "shopping_mall", "fast_food_restaurant"],
+      "excludedTypes": ["bar", "night_club"]
+    },
+    "adults": {
+      "includedTypes": ["restaurant", "bar", "movie_theater", "shopping_mall", "museum"],
+      "excludedTypes": []
+    },
+    "seniors": {
+      "includedTypes": ["park", "museum", "restaurant", "pharmacy", "hospital"],
+      "excludedTypes": ["night_club"]
+    },
+    "couples": {
+      "includedTypes": ["restaurant", "movie_theater", "park", "cafe", "spa"],
+      "excludedTypes": []
+    },
+    "friends": {
+      "includedTypes": ["restaurant", "bar", "bowling_alley", "movie_theater", "karaoke"],
+      "excludedTypes": []
+    },
+    "solo": {
+      "includedTypes": ["cafe", "library", "park", "museum", "bookstore"],
+      "excludedTypes": []
+    }
+  },
+  "special_occasion_filters": {
+    "date": {
+      "includedTypes": ["restaurant", "movie_theater", "cafe", "park"],
+      "excludedTypes": []
+    },
+    "birthday": {
+      "includedTypes": ["restaurant", "amusement_park", "event_venue", "bowling_alley"],
+      "excludedTypes": []
+    },
+    "anniversary": {
+      "includedTypes": ["fine_dining_restaurant", "hotel", "spa", "park"],
+      "excludedTypes": []
+    },
+    "wedding": {
+      "includedTypes": ["wedding_venue", "event_venue", "banquet_hall", "religious_center"],
+      "excludedTypes": []
+    },
+    "business_meeting": {
+      "includedTypes": ["restaurant", "cafe", "hotel", "conference_room"],
+      "excludedTypes": ["bar", "night_club"]
+    },
+    "graduation": {
+      "includedTypes": ["restaurant", "event_venue", "banquet_hall", "bar"],
+      "excludedTypes": []
+    },
+    "party": {
+      "includedTypes": ["event_venue", "bar", "night_club", "restaurant"],
+      "excludedTypes": []
+    }
+  },
+  "budget_filters": {
+    "low": {
+      "includedTypes": ["fast_food_restaurant", "cafe", "convenience_store", "park"],
+      "excludedTypes": ["fine_dining_restaurant", "department_store", "spa"]
+    },
+    "medium": {
+      "includedTypes": ["restaurant", "shopping_mall", "movie_theater", "museum"],
+      "excludedTypes": ["fine_dining_restaurant", "luxury_hotel"]
+    },
+    "high": {
+      "includedTypes": ["fine_dining_restaurant", "department_store", "spa", "luxury_hotel"],
+      "excludedTypes": ["fast_food_restaurant", "convenience_store"]
+    }
+  },
+  "service_filters": {
+    "wifi": {
+      "includedTypes": ["cafe", "restaurant", "hotel", "library"],
+      "excludedTypes": []
+    },
+    "reservations": {
+      "includedTypes": ["restaurant", "hotel", "event_venue", "spa"],
+      "excludedTypes": []
+    },
+    "delivery": {
+      "includedTypes": ["restaurant", "fast_food_restaurant", "meal_delivery", "supermarket"],
+      "excludedTypes": []
+    },
+    "takeout": {
+      "includedTypes": ["restaurant", "fast_food_restaurant", "meal_takeaway", "cafe"],
+      "excludedTypes": []
+    },
+    "drive_thru": {
+      "includedTypes": ["fast_food_restaurant", "pharmacy", "bank", "cafe"],
+      "excludedTypes": []
+    },
+    "open_late": {
+      "includedTypes": ["restaurant", "bar", "convenience_store", "pharmacy"],
+      "excludedTypes": []
+    },
+    "accessible": {
+      "includedTypes": ["restaurant", "shopping_mall", "museum", "hotel"],
+      "excludedTypes": []
+    },
+    "free_parking": {
+      "includedTypes": ["shopping_mall", "restaurant", "hotel", "supermarket"],
+      "excludedTypes": []
+    },
+    "valet_parking": {
+      "includedTypes": ["fine_dining_restaurant", "hotel", "department_store", "event_venue"],
+      "excludedTypes": []
+    }
+  },
+  "region_specific_filters": {
+    "seoul": {
+      "includedTypes": ["korean_restaurant", "cafe", "shopping_mall", "subway_station"],
+      "excludedTypes": []
+    },
+    "busan": {
+      "includedTypes": ["seafood_restaurant", "beach", "shopping_mall", "korean_restaurant"],
+      "excludedTypes": []
+    },
+    "jeju": {
+      "includedTypes": ["beach", "natural_feature", "tourist_attraction", "seafood_restaurant"],
+      "excludedTypes": []
+    },
+    "gangwon": {
+      "includedTypes": ["ski_resort", "hiking_area", "natural_feature", "korean_restaurant"],
+      "excludedTypes": []
+    },
+    "incheon": {
+      "includedTypes": ["international_airport", "shopping_mall", "korean_restaurant", "cafe"],
+      "excludedTypes": []
+    }
+  },
+  "combined_filters": {
+    "lunch_with_kids": {
+      "includedTypes": ["restaurant", "fast_food_restaurant", "cafe", "park"],
+      "excludedTypes": ["bar", "night_club"]
+    },
+    "rainy_day_activities": {
+      "includedTypes": ["shopping_mall", "movie_theater", "museum", "cafe", "bowling_alley"],
+      "excludedTypes": ["park", "beach", "hiking_area"]
+    },
+    "weekend_getaway": {
+      "includedTypes": ["hotel", "restaurant", "tourist_attraction", "natural_feature"],
+      "excludedTypes": []
+    },
+    "business_trip": {
+      "includedTypes": ["hotel", "restaurant", "cafe", "corporate_office"],
+      "excludedTypes": []
+    },
+    "romantic_evening": {
+      "includedTypes": ["fine_dining_restaurant", "bar", "park", "movie_theater"],
+      "excludedTypes": ["fast_food_restaurant"]
+    },
+    "study_spots": {
+      "includedTypes": ["cafe", "library", "book_store", "university"],
+      "excludedTypes": ["bar", "night_club"]
+    },
+    "tourist_attractions": {
+      "includedTypes": ["tourist_attraction", "museum", "art_gallery", "natural_feature"],
+      "excludedTypes": []
+    },
+    "outdoor_workout": {
+      "includedTypes": ["park", "hiking_area", "sports_complex", "swimming_pool"],
+      "excludedTypes": ["restaurant", "cafe"]
+    },
+    "dinner_and_movie": {
+      "includedTypes": ["restaurant", "movie_theater", "cafe"],
+      "excludedTypes": []
+    },
+    "cultural_experience": {
+      "includedTypes": ["museum", "art_gallery", "theater", "cultural_center"],
+      "excludedTypes": []
+    }
+  },
+  "mood_filters": {
+    "peaceful": {
+      "includedTypes": ["park", "library", "museum", "cafe"],
+      "excludedTypes": ["bar", "night_club", "amusement_park"]
+    },
+    "lively": {
+      "includedTypes": ["bar", "night_club", "shopping_mall", "amusement_park"],
+      "excludedTypes": ["library", "museum"]
+    },
+    "romantic": {
+      "includedTypes": ["fine_dining_restaurant", "park", "botanical_garden", "beach"],
+      "excludedTypes": ["fast_food_restaurant"]
+    },
+    "adventurous": {
+      "includedTypes": ["amusement_park", "hiking_area", "adventure_sports_center", "water_park"],
+      "excludedTypes": ["library", "museum"]
+    },
+    "casual": {
+      "includedTypes": ["cafe", "fast_food_restaurant", "park", "shopping_mall"],
+      "excludedTypes": ["fine_dining_restaurant"]
+    },
+    "luxurious": {
+      "includedTypes": ["fine_dining_restaurant", "spa", "luxury_hotel", "department_store"],
+      "excludedTypes": ["fast_food_restaurant", "convenience_store"]
+    },
+    "nostalgic": {
+      "includedTypes": ["museum", "historical_place", "park", "cultural_landmark"],
+      "excludedTypes": []
+    },
+    "creative": {
+      "includedTypes": ["art_gallery", "museum", "art_studio", "cultural_center"],
+      "excludedTypes": []
+    }
+  },
+  "accessibility_filters": {
+    "wheelchair_accessible": {
+      "includedTypes": ["restaurant", "shopping_mall", "museum", "cafe"],
+      "excludedTypes": ["hiking_area"]
+    },
+    "family_friendly": {
+      "includedTypes": ["park", "restaurant", "shopping_mall", "amusement_park"],
+      "excludedTypes": ["bar", "night_club"]
+    },
+    "pet_friendly": {
+      "includedTypes": ["park", "cafe", "pet_store", "dog_park"],
+      "excludedTypes": ["museum", "restaurant"]
+    },
+    "allergy_friendly": {
+      "includedTypes": ["vegan_restaurant", "vegetarian_restaurant", "pharmacy", "hospital"],
+      "excludedTypes": []
+    },
+    "noise_sensitive": {
+      "includedTypes": ["library", "museum", "park", "art_gallery"],
+      "excludedTypes": ["bar", "night_club", "amusement_park"]
+    }
+  },
+  "specialty_cuisine_filters": {
+    "vegan": {
+      "includedTypes": ["vegan_restaurant", "vegetarian_restaurant", "cafe"],
+      "excludedTypes": ["steak_house", "seafood_restaurant"]
+    },
+    "vegetarian": {
+      "includedTypes": ["vegetarian_restaurant", "vegan_restaurant", "cafe"],
+      "excludedTypes": ["steak_house"]
+    },
+    "gluten_free": {
+      "includedTypes": ["restaurant", "cafe", "bakery"],
+      "excludedTypes": []
+    },
+    "organic": {
+      "includedTypes": ["restaurant", "grocery_store", "cafe", "health_food_store"],
+      "excludedTypes": ["fast_food_restaurant"]
+    },
+    "halal": {
+      "includedTypes": ["halal_restaurant", "restaurant", "grocery_store"],
+      "excludedTypes": []
+    },
+    "kosher": {
+      "includedTypes": ["kosher_restaurant", "restaurant", "grocery_store"],
+      "excludedTypes": []
+    },
+    "seafood": {
+      "includedTypes": ["seafood_restaurant", "restaurant"],
+      "excludedTypes": []
+    },
+    "international": {
+      "includedTypes": ["japanese_restaurant", "italian_restaurant", "indian_restaurant", "thai_restaurant"],
+      "excludedTypes": []
+    }
+  },
+  "seasonal_filters": {
+    "spring": {
+      "includedTypes": ["park", "botanical_garden", "cafe", "restaurant"],
+      "excludedTypes": ["ski_resort"]
+    },
+    "summer": {
+      "includedTypes": ["beach", "water_park", "swimming_pool", "ice_cream_shop"],
+      "excludedTypes": ["ski_resort"]
+    },
+    "autumn": {
+      "includedTypes": ["park", "hiking_area", "cafe", "restaurant"],
+      "excludedTypes": ["water_park", "beach"]
+    },
+    "winter": {
+      "includedTypes": ["ski_resort", "shopping_mall", "cafe", "restaurant"],
+      "excludedTypes": ["beach", "water_park"]
+    },
+    "holiday": {
+      "includedTypes": ["shopping_mall", "department_store", "restaurant", "event_venue"],
+      "excludedTypes": []
+    },
+    "festival": {
+      "includedTypes": ["event_venue", "park", "convention_center", "amphitheater"],
+      "excludedTypes": []
+    }
+  },
+  "contextual_filters": {
+    "working": {
+      "includedTypes": ["cafe", "library", "coworking_space", "corporate_office"],
+      "excludedTypes": ["bar", "night_club"]
+    },
+    "studying": {
+      "includedTypes": ["library", "cafe", "book_store", "university"],
+      "excludedTypes": ["bar", "night_club"]
+    },
+    "dating": {
+      "includedTypes": ["restaurant", "cafe", "movie_theater", "park"],
+      "excludedTypes": []
+    },
+    "meeting_friends": {
+      "includedTypes": ["restaurant", "cafe", "bar", "bowling_alley"],
+      "excludedTypes": []
+    },
+    "sightseeing": {
+      "includedTypes": ["tourist_attraction", "museum", "landmark", "park"],
+      "excludedTypes": []
+    },
+    "emergency": {
+      "includedTypes": ["hospital", "pharmacy", "police", "doctor"],
+      "excludedTypes": []
+    }
+  },
+  "event_filters": {
+    "concert": {
+      "includedTypes": ["concert_hall", "performing_arts_theater", "stadium", "arena"],
+      "excludedTypes": []
+    },
+    "exhibition": {
+      "includedTypes": ["art_gallery", "museum", "convention_center", "exhibition_center"],
+      "excludedTypes": []
+    },
+    "sports_event": {
+      "includedTypes": ["stadium", "arena", "sports_complex"],
+      "excludedTypes": []
+    },
+    "conference": {
+      "includedTypes": ["convention_center", "hotel", "conference_room"],
+      "excludedTypes": []
+    },
+    "theater": {
+      "includedTypes": ["theater", "performing_arts_theater", "opera_house"],
+      "excludedTypes": []
+    },
+    "party": {
+      "includedTypes": ["night_club", "event_venue", "bar", "restaurant"],
+      "excludedTypes": []
+    }
+  },
+  "language_mapping": {
+    "한국어": {
+      "카페": "cafe",
+      "레스토랑": "restaurant",
+      "쇼핑몰": "shopping_mall",
+      "영화관": "movie_theater",
+      "박물관": "museum",
+      "도서관": "library",
+      "공원": "park",
+      "병원": "hospital",
+      "약국": "pharmacy",
+      "호텔": "hotel",
+      "주차장": "parking",
+      "주유소": "gas_station",
+      "지하철역": "subway_station",
+      "버스정류장": "bus_station",
+      "은행": "bank",
+      "ATM": "atm",
+      "학교": "school",
+      "대학교": "university",
+      "공항": "airport",
+      "체육관": "gym",
+      "수영장": "swimming_pool",
+      "미용실": "beauty_salon",
+      "슈퍼마켓": "supermarket",
+      "백화점": "department_store",
+      "편의점": "convenience_store",
+      "경찰서": "police",
+      "소방서": "fire_station",
+      "우체국": "post_office",
+      "교회": "church",
+      "사원": "temple",
+      "놀이공원": "amusement_park",
+      "동물원": "zoo"
+    },
+    "日本語": {
+      "カフェ": "cafe",
+      "レストラン": "restaurant",
+      "ショッピングモール": "shopping_mall",
+      "映画館": "movie_theater",
+      "博物館": "museum",
+      "図書館": "library",
+      "公園": "park",
+      "病院": "hospital",
+      "薬局": "pharmacy",
+      "ホテル": "hotel",
+      "駐車場": "parking",
+      "ガソリンスタンド": "gas_station",
+      "地下鉄駅": "subway_station",
+      "バス停": "bus_station",
+      "銀行": "bank",
+      "ATM": "atm",
+      "学校": "school",
+      "大学": "university",
+      "空港": "airport",
+      "ジム": "gym",
+      "プール": "swimming_pool",
+      "美容院": "beauty_salon",
+      "スーパーマーケット": "supermarket",
+      "デパート": "department_store",
+      "コンビニ": "convenience_store",
+      "警察署": "police",
+      "消防署": "fire_station",
+      "郵便局": "post_office",
+      "教会": "church",
+      "寺院": "temple",
+      "遊園地": "amusement_park",
+      "動物園": "zoo"
+    },
+    "中文": {
+      "咖啡厅": "cafe",
+      "餐厅": "restaurant",
+      "购物中心": "shopping_mall",
+      "电影院": "movie_theater",
+      "博物馆": "museum",
+      "图书馆": "library",
+      "公园": "park",
+      "医院": "hospital",
+      "药店": "pharmacy",
+      "酒店": "hotel",
+      "停车场": "parking",
+      "加油站": "gas_station",
+      "地铁站": "subway_station",
+      "公交车站": "bus_station",
+      "银行": "bank",
+      "自动取款机": "atm",
+      "学校": "school",
+      "大学": "university",
+      "机场": "airport",
+      "健身房": "gym",
+      "游泳池": "swimming_pool",
+      "美容院": "beauty_salon",
+      "超市": "supermarket",
+      "百货商店": "department_store",
+      "便利店": "convenience_store",
+      "警察局": "police",
+      "消防局": "fire_station",
+      "邮局": "post_office",
+      "教堂": "church",
+      "寺庙": "temple",
+      "游乐园": "amusement_park",
+      "动物园": "zoo"
+    }
+  }
+}
