@@ -654,6 +654,7 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
     - 지역 접두사 목록 대신 단계적 하이브리드 접근법 적용
     - 컨텍스트 기반 단일 검색을 먼저 시도하고 실패 시에만 추가 검색
     - 장소명에 지역명이 이미 포함되어 있는지 확인하는 로직 추가
+    - 이미 사용된 장소 추적하여 중복 방지
     """
     print("위치 정보 보강 시작...")
     
@@ -665,6 +666,9 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
     
     # 주요 지역 목록 (fallback 검색용)
     major_regions = ["서울", "부산", "대구", "인천", "광주", "대전", "울산"]
+    
+    # 이미 사용된 장소를 추적하기 위한 집합
+    already_used_places = set()
     
     # 지역명이 장소명에 포함되어 있는지 확인하는 함수
     def contains_region(place_name: str) -> (bool, str):
@@ -791,6 +795,10 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
                     schedule["latitude"] = found_place["latitude"]
                     schedule["longitude"] = found_place["longitude"]
                     print(f"좌표 업데이트: [{found_place['latitude']}, {found_place['longitude']}]")
+                
+                # 사용된 장소 추적
+                if found_place.get("place_id"):
+                    already_used_places.add(found_place.get("place_id"))
             else:
                 print(f"'{place_name}'에 대한 정확한 장소 정보를 찾을 수 없음")
     
@@ -839,6 +847,12 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
                     attempted_searches.add(search_term)
                     print(f"인근 '{search_term}' 검색 중...")
                     place_info = places_tool.search_nearby_detailed(search_term, existing_location)
+                    
+                    # 이미 사용된 장소면 다음 결과 사용 
+                    if place_info and place_info.get("place_id") in already_used_places:
+                        print(f"이미 사용된 장소 발견: {place_info.get('name')}, 다른 결과 시도...")
+                        # 다른 검색어로 시도
+                        continue
                 else:
                     # 일반 지역 검색 (컨텍스트 기반)
                     if primary_region:
@@ -854,10 +868,19 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
                     attempted_searches.add(search_term)
                     print(f"'{search_term}' 지역 검색 중...")
                     place_info = places_tool.search_place_detailed(search_term)
+                    
+                    # 이미 사용된 장소면 다른 결과 시도 
+                    if place_info and place_info.get("place_id") in already_used_places:
+                        print(f"이미 사용된 장소 발견: {place_info.get('name')}, 다른 결과 시도...")
+                        # 다른 검색어로 시도
+                        continue
                 
                 if place_info and place_info.get("formatted_address"):
                     found_place = place_info
                     print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
+                    # 사용된 장소 추적
+                    if place_info.get("place_id"):
+                        already_used_places.add(place_info.get("place_id"))
                     break
             
             # 장소를 찾았으면 정보 업데이트
@@ -891,7 +914,6 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
     
     print("위치 정보 보강 완료")
     return enhanced_data
-
 # ----- 엔드포인트 정의 -----
 
 @app.get("/")

@@ -1,9 +1,8 @@
-# scheduler/priority_analyzer.py 수정
+# scheduler/priority_analyzer.py에서 개선
 
-import json
 import logging
-from typing import Dict, Any, List, Optional
-
+from typing import Dict, Any, List, Tuple
+import json 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('priority_analyzer')
@@ -60,7 +59,7 @@ def analyze_schedule_priorities(priority_chain, voice_input: str, extracted_sche
 def apply_priorities(priority_chain, voice_input: str, extracted_schedules: Dict[str, Any]) -> Dict[str, Any]:
     """분석된 우선순위를 일정에 적용"""
     logger.info("우선순위 적용 시작")
-    logger.info(f"입력 일정 데이터: 고정=1개, 유연=3개")
+    logger.info(f"입력 일정 데이터: 고정={len(extracted_schedules.get('fixedSchedules', []))}개, 유연={len(extracted_schedules.get('flexibleSchedules', []))}개")
     
     # LLM 응답 개선을 위한 프롬프트 강화
     sequence_keywords = {
@@ -243,6 +242,22 @@ def apply_priorities(priority_chain, voice_input: str, extracted_schedules: Dict
             all_priorities[new_priority] = schedule.get("name", "")
         else:
             all_priorities[priority] = schedule.get("name", "")
+    
+    # 6단계: 최종 우선순위 순차 정렬 (1부터 시작하는 연속된 값)
+    # 전체 일정 (고정 + 유연)을 우선순위로 정렬
+    all_schedules = fixed_schedules + flexible_schedules
+    priority_ordered_schedules = sorted(all_schedules, key=lambda s: s.get("priority", 999))
+    
+    # 1부터 시작하는 순차적 우선순위 재할당
+    for i, schedule in enumerate(priority_ordered_schedules):
+        old_priority = schedule.get("priority", "없음")
+        new_priority = i + 1
+        schedule["priority"] = new_priority
+        logger.info(f"최종 순차 우선순위 설정: '{schedule.get('name', '')}' {old_priority} -> {new_priority}")
+    
+    # 정렬된 일정을 다시 고정/유연으로 분리
+    fixed_schedules = [s for s in priority_ordered_schedules if s in fixed_schedules]
+    flexible_schedules = [s for s in priority_ordered_schedules if s in flexible_schedules]
     
     # 업데이트된 일정 로깅
     logger.info("우선순위 적용 결과:")

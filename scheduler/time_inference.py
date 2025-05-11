@@ -3,7 +3,7 @@ import datetime
 import json
 import logging
 from typing import Dict, Any, List, Tuple, Optional
-
+from .utils import parse_datetime
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('time_inference')
@@ -125,8 +125,8 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
             "confidence": 0.8
         },
         "그 다음": {
-            "start": reference_time + datetime.timedelta(minutes=30),
-            "end": reference_time + datetime.timedelta(minutes=90),
+            "start": reference_time + datetime.timedelta(minutes=120),  # 더 늦게 시작
+            "end": reference_time + datetime.timedelta(minutes=180),  # 시간 간격 확장
             "duration": 60,
             "confidence": 0.7
         },
@@ -158,6 +158,26 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
     
     logger.info(f"최종 시간 키워드 맵: {list(time_keywords.keys())}")
     
+    # "그 다음" 관련 일정 식별
+    next_schedules = []
+    for idx, schedule in enumerate(flexible_schedules):
+        schedule_name = schedule.get("name", "").lower()
+        # "그 다음" 이후에 언급된 일정 확인
+        if "그 다음" in voice_input.lower():
+            parts = voice_input.lower().split("그 다음")
+            if len(parts) > 1:
+                after_part = parts[1]
+                # 일정명의 단어가 "그 다음" 이후에 있는지 확인
+                words = [word for word in schedule_name.split() if len(word) > 1]
+                for word in words:
+                    if word in after_part:
+                        next_schedules.append((idx, schedule, words))
+                        logger.info(f"'그 다음' 이후 일정으로 '{schedule_name}' 식별됨")
+                        break
+    
+    # 마지막 할당 시간 추적 (순차적 할당용)
+    last_assigned_time = reference_time
+    
     # 시간 할당 로직 강화
     for idx, schedule in enumerate(flexible_schedules):
         logger.info(f"유연 일정 {idx+1} 처리: {schedule.get('name', '이름 없음')}")
@@ -174,6 +194,14 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
                     start_time = time_data.get("start")
                     end_time = time_data.get("end")
                     
+                    # "그 다음" 키워드를 위한 특별 처리
+                    if keyword == "그 다음" and any(s[1].get("id") == schedule.get("id") for s in next_schedules):
+                        # 마지막 할당된 시간 이후로 30분 더 추가
+                        logger.info(f"'그 다음' 일정에 대한 특별 시간 조정")
+                        start_time = last_assigned_time + datetime.timedelta(minutes=30)
+                        duration = schedule.get("duration", 60)
+                        end_time = start_time + datetime.timedelta(minutes=duration)
+                    
                     if isinstance(start_time, datetime.datetime):
                         start_str = start_time.isoformat()
                     else:
@@ -189,10 +217,15 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
                     schedule["startTime"] = start_str
                     schedule["endTime"] = end_str
                     
+                    # 할당 시간 업데이트
+                    if isinstance(end_time, datetime.datetime):
+                        last_assigned_time = end_time
+                        logger.info(f"마지막 할당 시간 업데이트: {last_assigned_time}")
+                    
                     # 신뢰도가 충분히 높으면 FIXED로 변경
                     confidence = time_data.get("confidence", 0.5)
                     logger.info(f"시간 신뢰도: {confidence}")
-                    if confidence > 0.7:
+                    if confidence > 0.8:  # 0.7에서 0.8로 상향 조정
                         logger.info(f"유연 일정을 고정 일정으로 변환 (신뢰도: {confidence})")
                         schedule["type"] = "FIXED"
                     break
@@ -206,23 +239,43 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
         else:
             logger.info(f"일정 '{schedule.get('name', '')}' 시간 키워드 매칭 없음")
     
+    # "그 다음" 일정들에 대한 특별 시간 처리
+    for idx, schedule, words in next_schedules:
+        # 이미 시간이 할당되어 있지만 "그 다음" 관계를 더 명확하게 하기 위해 조정
+        if "startTime" in schedule and "endTime" in schedule:
+            # 다른 일정들보다 뒤에 위치하도록 조정
+            new_start = last_assigned_time + datetime.timedelta(minutes=30)
+            duration = schedule.get("duration", 60)
+            new_end = new_start + datetime.timedelta(minutes=duration)
+            
+            old_start = schedule.get("startTime", "N/A")
+            old_end = schedule.get("endTime", "N/A")
+            
+            logger.info(f"'그 다음' 일정 시간 재조정: '{schedule.get('name', '')}' {old_start}-{old_end} -> {new_start.isoformat()}-{new_end.isoformat()}")
+            
+            schedule["startTime"] = new_start.isoformat()
+            schedule["endTime"] = new_end.isoformat()
+            
+            # 마지막 할당 시간 업데이트
+            last_assigned_time = new_end
+            logger.info(f"마지막 할당 시간 업데이트: {last_assigned_time}")
+    
     # 시간이 할당되지 않은 일정에 대한 연속 시간 할당
     logger.info("할당되지 않은 일정 처리 시작")
-    last_time = reference_time
     updated_count = 0
     
     for idx, schedule in enumerate(flexible_schedules):
         if "startTime" not in schedule or "endTime" not in schedule:
             duration = schedule.get("duration", 60)
-            logger.info(f"일정 '{schedule.get('name', '')}' 시간 할당: 시작={last_time}, 기간={duration}분")
+            logger.info(f"일정 '{schedule.get('name', '')}' 시간 할당: 시작={last_assigned_time}, 기간={duration}분")
             
-            schedule["startTime"] = last_time.isoformat()
-            end_time = last_time + datetime.timedelta(minutes=duration)
+            schedule["startTime"] = last_assigned_time.isoformat()
+            end_time = last_assigned_time + datetime.timedelta(minutes=duration)
             schedule["endTime"] = end_time.isoformat()
             
             # 다음 일정 시간 계산 (30분 이동 시간 추가)
-            last_time = end_time + datetime.timedelta(minutes=30)
-            logger.info(f"다음 일정 시작 시간 설정: {last_time}")
+            last_assigned_time = end_time + datetime.timedelta(minutes=30)
+            logger.info(f"다음 일정 시작 시간 설정: {last_assigned_time}")
             updated_count += 1
     
     logger.info(f"할당되지 않은 {updated_count}개 일정 처리 완료")
