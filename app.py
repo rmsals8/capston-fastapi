@@ -5,7 +5,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.chains import LLMChain
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Any, Optional, Tuple, Set
 import os
 import json
 import re
@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from geopy.distance import geodesic
 import math
 import random
+from functools import lru_cache
 from fastapi.middleware.cors import CORSMiddleware
 from scheduler.utils import detect_and_resolve_time_conflicts
 from scheduler import (
@@ -294,19 +295,70 @@ class GooglePlacesTool:
         self.api_key = api_key or GOOGLE_MAPS_API_KEY
         if not self.api_key:
             raise ValueError("Google Maps API 키가 필요합니다.")
+        # 검색 결과 캐싱을 위한 딕셔너리
+        self.search_cache = {}
+        # 로깅 설정
+        self.logger = logging.getLogger('google_places_tool')
+        self.logger.setLevel(logging.INFO)
     
-    def search_place_detailed(self, query: str) -> Dict:
-        """더 상세한 장소 검색 기능"""
+    def build_search_query(self, query: str, place_type: str = None, region: str = None) -> str:
+        """검색 쿼리 최적화 빌더"""
+        components = []
+        
+        # 지역 정보가 있으면 추가 (query에 이미 포함되어 있지 않은 경우)
+        if region and region not in query:
+            components.append(region)
+        
+        # 원본 쿼리 추가
+        components.append(query)
+        
+        # 최종 쿼리 생성
+        final_query = " ".join(components)
+        self.logger.info(f"빌드된 검색 쿼리: '{final_query}', 장소 유형: {place_type or '없음'}")
+        
+        return final_query
+    
+    @lru_cache(maxsize=100)
+    def search_place_cached(self, query: str, place_type: str = None) -> Optional[Dict]:
+        """캐싱을 지원하는 장소 검색 함수"""
+        cache_key = f"{query}_{place_type}"
+        
+        # 캐시에 있으면 반환
+        if cache_key in self.search_cache:
+            self.logger.info(f"캐시에서 결과 반환: '{cache_key}'")
+            return self.search_cache[cache_key]
+        
+        # 없으면 검색 실행
+        result = self.search_place_detailed(query, place_type)
+        
+        # 결과가 있으면 캐시에 저장
+        if result:
+            self.search_cache[cache_key] = result
+            self.logger.info(f"검색 결과 캐싱: '{cache_key}'")
+        
+        return result
+    
+    def search_place_detailed(self, query: str, place_type: str = None) -> Optional[Dict]:
+        """더 상세한 장소 검색 기능 - 장소 유형 지원"""
         try:
             # URL 인코딩
             encoded_query = requests.utils.quote(query)
             
-            # Places API 호출 - 추가 필드로 상세 정보 요청
-            url = f"https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input={encoded_query}&inputtype=textquery&fields=name,formatted_address,geometry,place_id,types,address_components&language=ko&key={self.api_key}"
+            # 기본 필드 설정
+            fields = "name,formatted_address,geometry,place_id,types,address_components"
+            
+            # Places API 호출 - 유형 매개변수 추가
+            url = f"https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input={encoded_query}&inputtype=textquery&fields={fields}&language=ko&key={self.api_key}"
+            
+            # 장소 유형이 지정된 경우 추가
+            if place_type:
+                url += f"&locationbias=type:{place_type}"
+            
+            self.logger.info(f"Places API 요청: '{query}', 유형: {place_type or '없음'}")
             
             response = requests.get(url, timeout=5)
             if response.status_code != 200:
-                print(f"Google Places API 호출 실패: {response.status_code}")
+                self.logger.warning(f"Google Places API 호출 실패: {response.status_code}")
                 return None
             
             data = response.json()
@@ -354,24 +406,27 @@ class GooglePlacesTool:
                             if len(detailed_address.split()) >= len(formatted_address.split()):
                                 formatted_address = detailed_address
                 
+                place_types = candidate.get('types', [])
+                self.logger.info(f"장소 찾음: {candidate.get('name')}, 유형: {place_types}")
+                
                 return {
                     'name': candidate.get('name', query),
                     'formatted_address': formatted_address,
                     'latitude': candidate['geometry']['location']['lat'],
                     'longitude': candidate['geometry']['location']['lng'],
                     'place_id': candidate.get('place_id', ''),
-                    'types': candidate.get('types', [])
+                    'types': place_types
                 }
             else:
-                print(f"장소를 찾을 수 없음: {data['status']}")
+                self.logger.warning(f"장소를 찾을 수 없음: {data['status']}")
                 return None
                 
         except Exception as e:
-            print(f"장소 검색 중 오류 발생: {str(e)}")
+            self.logger.error(f"장소 검색 중 오류 발생: {str(e)}")
             return None
     
-    def search_nearby_detailed(self, query: str, location: str = "37.4980,127.0276", radius: int = 1000) -> Dict:
-        """개선된 주변 장소 검색 기능"""
+    def search_nearby_detailed(self, query: str, location: str = "37.4980,127.0276", radius: int = 1000, place_type: str = None) -> Optional[Dict]:
+        """개선된 주변 장소 검색 기능 - 장소 유형 지원"""
         try:
             # URL 인코딩
             encoded_query = requests.utils.quote(query)
@@ -379,9 +434,15 @@ class GooglePlacesTool:
             # Nearby Search API 호출
             url = f"https://maps.googleapis.com/maps/api/place/nearbysearch/json?location={location}&radius={radius}&keyword={encoded_query}&language=ko&key={self.api_key}"
             
+            # 장소 유형이 지정된 경우 추가
+            if place_type:
+                url += f"&type={place_type}"
+            
+            self.logger.info(f"Nearby API 요청: '{query}', 위치: {location}, 반경: {radius}m, 유형: {place_type or '없음'}")
+            
             response = requests.get(url, timeout=5)
             if response.status_code != 200:
-                print(f"Nearby Places API 호출 실패: {response.status_code}")
+                self.logger.warning(f"Nearby Places API 호출 실패: {response.status_code}")
                 return None
             
             data = response.json()
@@ -402,29 +463,31 @@ class GooglePlacesTool:
                     'formatted_address': top_place.get('vicinity', ''),
                     'latitude': top_place['geometry']['location']['lat'],
                     'longitude': top_place['geometry']['location']['lng'],
-                    'place_id': top_place.get('place_id', '')
+                    'place_id': top_place.get('place_id', ''),
+                    'types': top_place.get('types', [])
                 }
             else:
-                print(f"주변 장소를 찾을 수 없음: {data['status']}")
+                self.logger.warning(f"주변 장소를 찾을 수 없음: {data['status']}")
                 return None
                 
         except Exception as e:
-            print(f"주변 장소 검색 중 오류 발생: {str(e)}")
+            self.logger.error(f"주변 장소 검색 중 오류 발생: {str(e)}")
             return None
     
-    def get_place_details(self, place_id: str) -> Dict:
+    @lru_cache(maxsize=100)
+    def get_place_details(self, place_id: str) -> Optional[Dict]:
         """Place ID를 사용하여 장소의 상세 정보를 가져옵니다."""
         if not place_id:
-            print("Place ID가 제공되지 않았습니다.")
+            self.logger.warning("Place ID가 제공되지 않았습니다.")
             return None
             
         try:
             # Place Details API 호출
-            url = f"https://maps.googleapis.com/maps/api/place/details/json?place_id={place_id}&fields=name,formatted_address,geometry,address_component&language=ko&key={self.api_key}"
+            url = f"https://maps.googleapis.com/maps/api/place/details/json?place_id={place_id}&fields=name,formatted_address,geometry,address_component,types&language=ko&key={self.api_key}"
             
             response = requests.get(url, timeout=5)
             if response.status_code != 200:
-                print(f"Place Details API 호출 실패: {response.status_code}")
+                self.logger.warning(f"Place Details API 호출 실패: {response.status_code}")
                 return None
             
             data = response.json()
@@ -437,14 +500,15 @@ class GooglePlacesTool:
                     'formatted_address': result.get('formatted_address', ''),
                     'latitude': result['geometry']['location']['lat'],
                     'longitude': result['geometry']['location']['lng'],
-                    'place_id': place_id
+                    'place_id': place_id,
+                    'types': result.get('types', [])
                 }
             else:
-                print(f"장소 상세 정보를 찾을 수 없음: {data['status']}")
+                self.logger.warning(f"장소 상세 정보를 찾을 수 없음: {data['status']}")
                 return None
                 
         except Exception as e:
-            print(f"장소 상세 정보 검색 중 오류 발생: {str(e)}")
+            self.logger.error(f"장소 상세 정보 검색 중 오류 발생: {str(e)}")
             return None
 
 # ----- 유틸리티 함수 -----
@@ -652,13 +716,14 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
     일정 데이터의 위치 정보를 Google Places API를 사용하여 보강합니다.
     보다 정확하고 완전한 주소 정보와 좌표를 제공합니다.
     
-    수정사항:
-    - 지역 접두사 목록 대신 단계적 하이브리드 접근법 적용
-    - 컨텍스트 기반 단일 검색을 먼저 시도하고 실패 시에만 추가 검색
-    - 장소명에 지역명이 이미 포함되어 있는지 확인하는 로직 추가
-    - 이미 사용된 장소 추적하여 중복 방지
+    개선사항:
+    - 장소 유형 매핑 테이블을 활용한 유형 기반 검색
+    - 검색 쿼리 최적화 (지역명+장소명+유형)
+    - 검색 결과 캐싱으로 API 호출 최소화
+    - 점진적 검색 전략 (정확한 검색→유형 기반→위치 기반)
     """
-    print("위치 정보 보강 시작...")
+    logger = logging.getLogger('location_enhancer')
+    logger.info("위치 정보 보강 시작...")
     
     # GooglePlacesTool 초기화
     places_tool = GooglePlacesTool()
@@ -673,73 +738,12 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
     already_used_places = set()
     
     # 지역명이 장소명에 포함되어 있는지 확인하는 함수
-    def contains_region(place_name: str) -> (bool, str):
+    def contains_region(place_name: str) -> Tuple[bool, str]:
         """장소명에 지역명이 포함되어 있는지 확인하고, 포함된 지역명 반환"""
         for region in major_regions:
             if region in place_name:
                 return True, region
         return False, ""
-    
-    # 검색 함수 개선 - 재시도 로직 추가
-    def search_place_with_retry(query, retries=3, delay=1):
-        """재시도 로직이 포함된 장소 검색 함수"""
-        for attempt in range(retries):
-            try:
-                result = places_tool.search_place_detailed(query)
-                if result:
-                    return result
-            except Exception as e:
-                print(f"검색 시도 {attempt+1}/{retries} 실패: {str(e)}")
-                time.sleep(delay)  # 일시 지연 후 재시도
-        
-        # 모든 시도 실패 후 None 반환
-        return None
-    
-    # 대체 검색 로직 (중복 방지 개선)
-    def find_alternative(original_query, used_places, primary_location=None):
-        """이미 사용된 장소를 피해 대안 찾기"""
-        # 검색 쿼리 변형
-        variants = [
-            f"{original_query} 인근",
-            f"{original_query} 근방",
-            f"{original_query} 주변",
-            f"다른 {original_query}"
-        ]
-        
-        # 지역 기반 변형
-        if primary_region:
-            for district in ["중구", "남구", "북구", "동구", "서구"]:
-                variants.append(f"{primary_region} {district} {original_query}")
-        
-        # 변형 쿼리로 검색
-        for variant in variants:
-            try:
-                result = search_place_with_retry(variant)
-                if result and result.get("place_id") not in used_places:
-                    print(f"대체 검색 성공: '{variant}' -> {result.get('name')}")
-                    return result
-            except Exception as e:
-                print(f"대체 검색 실패 ('{variant}'): {str(e)}")
-        
-        # 위치 기반 검색 (좌표가 있는 경우)
-        if primary_location:
-            try:
-                # 다양한 반경으로 시도
-                for radius in [1000, 2000, 3000]:
-                    result = places_tool.search_nearby_detailed(
-                        original_query, 
-                        location=f"{primary_location[0]},{primary_location[1]}", 
-                        radius=radius
-                    )
-                    
-                    if result and result.get("place_id") not in used_places:
-                        print(f"위치 기반 대체 검색 성공 (반경 {radius}m): {result.get('name')}")
-                        return result
-            except Exception as e:
-                print(f"위치 기반 대체 검색 실패: {str(e)}")
-        
-        # 모든 시도 실패
-        return None
     
     # 고정 일정을 통해 주요 지역 컨텍스트 파악
     primary_region = None
@@ -753,7 +757,7 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
         # 기본 위치 정보 저장
         if main_fixed_schedule.get("latitude") and main_fixed_schedule.get("longitude"):
             primary_location = (main_fixed_schedule.get("latitude"), main_fixed_schedule.get("longitude"))
-            print(f"주요 위치 좌표: {primary_location}")
+            logger.info(f"주요 위치 좌표: {primary_location}")
         
         # 장소명이나 위치에서 지역 추출
         has_region, region = contains_region(place_name)
@@ -765,12 +769,12 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
                     primary_region = region
                     break
     
-    print(f"주요 지역 컨텍스트: {primary_region or '없음'}")
+    logger.info(f"주요 지역 컨텍스트: {primary_region or '없음'}")
     
     # 고정 일정 처리
     if "fixedSchedules" in enhanced_data and isinstance(enhanced_data["fixedSchedules"], list):
         for i, schedule in enumerate(enhanced_data["fixedSchedules"]):
-            print(f"고정 일정 {i+1} 처리 중: {schedule.get('name', '이름 없음')}")
+            logger.info(f"고정 일정 {i+1} 처리 중: {schedule.get('name', '이름 없음')}")
             
             place_name = schedule.get("name", "")
             if not place_name:
@@ -778,6 +782,10 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
             
             # 장소 검색 시도
             found_place = None
+            
+            # 유형 유추
+            place_type = get_place_type(place_name)
+            logger.info(f"고정 일정 '{place_name}'의 유추된 유형: {place_type or '없음'}")
             
             # 단계 1: 컨텍스트 기반 단일 검색 (주요 로직 변경)
             search_term = place_name  # 기본값은 장소명 그대로
@@ -787,66 +795,55 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
             
             if has_region_in_name:
                 # 이미 지역명이 포함되어 있으면 그대로 사용
-                print(f"장소명에 지역({region_in_name})이 이미 포함됨")
+                logger.info(f"장소명에 지역({region_in_name})이 이미 포함됨")
                 search_term = place_name
+                context_region = region_in_name
             elif primary_region:
                 # 주요 지역 컨텍스트가 있으면 추가
-                search_term = f"{primary_region} {place_name}"
-                print(f"컨텍스트 기반 검색 시도: '{search_term}'")
+                search_term = place_name
+                context_region = primary_region
+                logger.info(f"컨텍스트 기반 검색 시도: '{search_term}', 지역: {context_region}")
             else:
                 # 컨텍스트가 없으면 장소명 그대로 사용
-                print(f"기본 검색 시도: '{search_term}'")
+                search_term = place_name
+                context_region = None
+                logger.info(f"기본 검색 시도: '{search_term}'")
             
-            # 첫 번째 검색 실행 (재시도 로직 적용)
-            place_info = search_place_with_retry(search_term)
+            # 첫 번째 검색 실행 (최적화된 검색)
+            place_info = search_place_with_retry(places_tool, search_term, place_type, context_region)
             
             # 결과 확인
             if place_info and place_info.get("formatted_address"):
                 found_place = place_info
-                print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
+                logger.info(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
             else:
                 # 단계 2: 첫 검색 실패 시 추가 전략 시도
-                print(f"첫 검색 실패, 추가 전략 시도...")
+                logger.info(f"첫 검색 실패, 추가 전략 시도...")
                 
                 # 2-1: 장소명에 지역명이 포함된 경우, 지역명 제거 후 검색
                 if has_region_in_name:
                     # 지역명 제거한 깨끗한 장소명 생성
                     clean_name = place_name.replace(region_in_name, "").strip()
                     if clean_name:  # 비어있지 않으면
-                        print(f"지역명 제거 후 검색 시도: '{clean_name}'")
-                        place_info = search_place_with_retry(clean_name)
+                        logger.info(f"지역명 제거 후 검색 시도: '{clean_name}'")
+                        place_info = search_place_with_retry(places_tool, clean_name, place_type, region_in_name)
                         if place_info and place_info.get("formatted_address"):
                             found_place = place_info
-                            print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
+                            logger.info(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
                 
                 # 2-2: 그래도 실패하면 대체 검색 로직 사용
                 if not found_place:
-                    print(f"대체 검색 전략 시도...")
-                    found_place = find_alternative(place_name, already_used_places, primary_location)
+                    logger.info(f"대체 검색 전략 시도...")
+                    found_place = find_alternative_place(
+                        places_tool, 
+                        place_name,
+                        already_used_places, 
+                        primary_location,
+                        primary_region
+                    )
                     
                     if found_place:
-                        print(f"대체 검색으로 장소 찾음: {found_place.get('name')} - {found_place.get('formatted_address')}")
-                    else:
-                        # 2-3: 여전히 실패하면 주요 지역 접두사 시도 (최대 3개)
-                        # 컨텍스트와 다른 몇 개의 주요 도시만 시도
-                        fallback_regions = []
-                        if primary_region:
-                            # 주요 지역이 이미 있으면 다른 주요 도시 2개만 추가
-                            for region in major_regions:
-                                if region != primary_region and len(fallback_regions) < 2:
-                                    fallback_regions.append(region)
-                        else:
-                            # 주요 지역이 없으면 상위 3개 주요 도시 시도
-                            fallback_regions = major_regions[:3]
-                        
-                        for region in fallback_regions:
-                            search_term = f"{region} {place_name}"
-                            print(f"대체 지역 검색 시도: '{search_term}'")
-                            place_info = search_place_with_retry(search_term)
-                            if place_info and place_info.get("formatted_address"):
-                                found_place = place_info
-                                print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
-                                break
+                        logger.info(f"대체 검색으로 장소 찾음: {found_place.get('name')} - {found_place.get('formatted_address')}")
             
             # 장소를 찾았으면 정보 업데이트
             if found_place:
@@ -857,148 +854,277 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
                     
                     # 주소가 충분히 구체적인지 확인
                     if len(new_location.split()) > 2:  # 최소 3개 단어 이상의 주소
-                        print(f"주소 업데이트: '{original_location}' -> '{new_location}'")
+                        logger.info(f"주소 업데이트: '{original_location}' -> '{new_location}'")
                         schedule["location"] = new_location
                     else:
-                        print(f"주소가 너무 일반적임: '{new_location}', 검색 계속")
+                        logger.info(f"주소가 너무 일반적임: '{new_location}', 검색 계속")
                         # 더 구체적인 주소 검색 시도 (place_id 이용)
                         detailed_place = places_tool.get_place_details(found_place.get("place_id", ""))
                         if detailed_place and detailed_place.get("formatted_address"):
-                            print(f"상세 주소 찾음: '{detailed_place['formatted_address']}'")
+                            logger.info(f"상세 주소 찾음: '{detailed_place['formatted_address']}'")
                             schedule["location"] = detailed_place["formatted_address"]
                 
                 # 좌표 업데이트
                 if found_place.get("latitude") and found_place.get("longitude"):
                     schedule["latitude"] = found_place["latitude"]
                     schedule["longitude"] = found_place["longitude"]
-                    print(f"좌표 업데이트: [{found_place['latitude']}, {found_place['longitude']}]")
+                    logger.info(f"좌표 업데이트: [{found_place['latitude']}, {found_place['longitude']}]")
                 
                 # 사용된 장소 추적
                 if found_place.get("place_id"):
                     already_used_places.add(found_place.get("place_id"))
             else:
-                print(f"'{place_name}'에 대한 정확한 장소 정보를 찾을 수 없음")
+                logger.info(f"'{place_name}'에 대한 정확한 장소 정보를 찾을 수 없음")
     
     # 유연 일정 처리
     if "flexibleSchedules" in enhanced_data and isinstance(enhanced_data["flexibleSchedules"], list):
         for i, schedule in enumerate(enhanced_data["flexibleSchedules"]):
-            print(f"유연 일정 {i+1} 처리 중: {schedule.get('name', '이름 없음')}")
+            logger.info(f"유연 일정 {i+1} 처리 중: {schedule.get('name', '이름 없음')}")
             
             # 유연 일정의 경우 카테고리 기반 검색
             category = schedule.get("name", "")
+            
+            # 카테고리에서 장소 유형 유추
+            place_type = get_place_type(category)
+            logger.info(f"유연 일정 '{category}'의 유추된 유형: {place_type or '없음'}")
             
             # 기존 위치 정보가 있으면 인근 검색 (고정 일정 기준)
             existing_location = None
             if "fixedSchedules" in enhanced_data and enhanced_data["fixedSchedules"]:
                 for fixed in enhanced_data["fixedSchedules"]:
                     if fixed.get("latitude") and fixed.get("longitude"):
-                        existing_location = f"{fixed['latitude']},{fixed['longitude']}"
-                        print(f"인근 검색 기준점: {fixed.get('name', '')} ({existing_location})")
+                        existing_location = (fixed['latitude'], fixed['longitude'])
+                        logger.info(f"인근 검색 기준점: {fixed.get('name', '')} ({existing_location[0]},{existing_location[1]})")
                         break
             
-            # 검색 쿼리 구성
-            search_queries = []
-            if "식사" in category or "식당" in category or "밥" in category:
-                search_queries = ["맛집", "레스토랑", "식당", "한식당", "음식점"]
-            elif "카페" in category or "커피" in category:
-                search_queries = ["카페", "커피숍", "스타벅스", "디저트카페", "베이커리"]
-            elif "쇼핑" in category or "마트" in category:
-                search_queries = ["쇼핑몰", "마트", "백화점", "아울렛", "상점"]
-            else:
-                search_queries = [category] + [f"{category} 장소", f"{category} 명소"]
-            
-            # 여러 검색어로 시도하여 가장 적합한 결과 찾기
+            # 점진적 검색 전략 적용
             found_place = None
             
-            # 중복 검색 방지를 위한 집합
-            attempted_searches = set()
-            
-            for query in search_queries:
-                # 이미 장소를 찾았으면 중단
-                if found_place:
-                    break
-                    
-                # 검색 쿼리 생성 (인근 검색 또는 컨텍스트 기반 검색)
-                if existing_location:
-                    # 인근 장소 검색
-                    search_term = query
-                    if search_term in attempted_searches:
-                        continue
-                    
-                    attempted_searches.add(search_term)
-                    print(f"인근 '{search_term}' 검색 중...")
-                    
-                    try:
-                        place_info = places_tool.search_nearby_detailed(search_term, existing_location)
+            # 1. 인근 위치 기반 검색
+            if existing_location:
+                # 탐색할 유형 후보를 장소 카테고리에 따라 결정
+                search_types = []
+                search_queries = []
+                
+                # 장소 유형과 카테고리에 따라 검색 쿼리 결정
+                if place_type:
+                    search_types.append(place_type)
+                
+                # 카테고리별 검색어 설정
+                if "식" in category or "음식" in category or "식당" in category:
+                    search_queries = ["맛집", "레스토랑", "식당"]
+                    if not search_types:
+                        search_types = ["restaurant", "food"]
+                elif "카페" in category or "커피" in category:
+                    search_queries = ["카페", "커피숍", "디저트"]
+                    if not search_types:
+                        search_types = ["cafe", "coffee_shop"]
+                elif "쇼핑" in category or "마트" in category:
+                    search_queries = ["쇼핑몰", "마트", "백화점"]
+                    if not search_types:
+                        search_types = ["shopping_mall", "department_store"]
+                else:
+                    search_queries = [category]
+                    if not search_types:
+                        # 기본 장소 유형 (검색어 기반으로 유추)
+                        default_type = get_place_type(category)
+                        if default_type:
+                            search_types.append(default_type)
+                        else:
+                            search_types.append("point_of_interest")
+                
+                # 기본 검색 쿼리가 없으면 추가
+                if category not in search_queries:
+                    search_queries.insert(0, category)
+                
+                # 중복 검색 방지를 위한 추적
+                attempted_searches = set()
+                
+                # 1.1 유형 기반 위치 주변 검색
+                for search_type in search_types:
+                    if found_place:
+                        break
                         
-                        # 이미 사용된 장소면 대체 검색 시도
-                        if place_info and place_info.get("place_id") in already_used_places:
-                            print(f"이미 사용된 장소 발견: {place_info.get('name')}, 대체 검색 시도...")
-                            
-                            # 중복 방지를 위한 대체 검색 함수 호출
-                            alt_place_info = find_alternative(
-                                query, 
-                                already_used_places,
-                                primary_location=(
-                                    float(existing_location.split(',')[0]),
-                                    float(existing_location.split(',')[1])
-                                )
+                    logger.info(f"유형 '{search_type}' 기반 인근 검색 시도")
+                    
+                    for radius in [1000, 2000, 3000]:
+                        location_str = f"{existing_location[0]},{existing_location[1]}"
+                        
+                        try:
+                            search_place = places_tool.search_nearby_detailed(
+                                category,  # 일반 카테고리명 사용
+                                location=location_str,
+                                radius=radius,
+                                place_type=search_type
                             )
                             
-                            if alt_place_info:
-                                place_info = alt_place_info
-                            else:
-                                # 대체 검색 실패, 다음 쿼리로 넘어감
+                            # 이미 사용된 장소면 건너뜀
+                            if search_place and search_place.get("place_id") in already_used_places:
+                                logger.info(f"이미 사용된 장소 발견: {search_place.get('name')}, 다음 검색 시도...")
                                 continue
-                        
-                        if place_info and place_info.get("formatted_address"):
-                            found_place = place_info
-                            print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
-                            # 사용된 장소 추적
-                            if place_info.get("place_id"):
-                                already_used_places.add(place_info.get("place_id"))
-                            break
-                    except Exception as e:
-                        print(f"인근 검색 오류: {str(e)}")
-                else:
-                    # 일반 지역 검색 (컨텍스트 기반)
-                    if primary_region:
-                        # 지역 컨텍스트가 있는 경우
-                        search_term = f"{primary_region} {query}"
-                    else:
-                        # 기본 지역 (서울) 사용
-                        search_term = f"서울 {query}"
-                    
-                    if search_term in attempted_searches:
-                        continue
-                    
-                    attempted_searches.add(search_term)
-                    print(f"'{search_term}' 지역 검색 중...")
-                    
-                    try:
-                        place_info = search_place_with_retry(search_term)
-                        
-                        # 이미 사용된 장소면 대체 검색 시도
-                        if place_info and place_info.get("place_id") in already_used_places:
-                            print(f"이미 사용된 장소 발견: {place_info.get('name')}, 대체 검색 시도...")
-                                                        # 중복 방지를 위한 대체 검색 함수 호출
-                            alt_place_info = find_alternative(query, already_used_places, primary_location)
                             
-                            if alt_place_info:
-                                place_info = alt_place_info
-                            else:
-                                # 대체 검색 실패, 다음 쿼리로 넘어감
-                                continue
-                        
-                        if place_info and place_info.get("formatted_address"):
-                            found_place = place_info
-                            print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
-                            # 사용된 장소 추적
-                            if place_info.get("place_id"):
-                                already_used_places.add(place_info.get("place_id"))
+                            if search_place and search_place.get("formatted_address"):
+                                found_place = search_place
+                                logger.info(f"유형 기반 장소 찾음: {search_place.get('name')} - {search_place.get('formatted_address')}")
+                                break
+                        except Exception as e:
+                            logger.error(f"유형 기반 인근 검색 오류 (반경 {radius}m): {str(e)}")
+                
+                # 1.2 키워드 기반 주변 검색
+                if not found_place:
+                    for query in search_queries:
+                        if found_place:
                             break
-                    except Exception as e:
-                        print(f"지역 검색 오류: {str(e)}")
+                            
+                        search_key = f"{query}_{primary_region or ''}"
+                        if search_key in attempted_searches:
+                            continue
+                            
+                        attempted_searches.add(search_key)
+                        logger.info(f"인근 '{query}' 검색 중...")
+                        
+                        for radius in [1000, 2000, 3000]:
+                            location_str = f"{existing_location[0]},{existing_location[1]}"
+                            
+                            try:
+                                search_place = places_tool.search_nearby_detailed(
+                                    query,
+                                    location=location_str,
+                                    radius=radius,
+                                    place_type=place_type
+                                )
+                                
+                                # 이미 사용된 장소면 대체 검색 시도
+                                if search_place and search_place.get("place_id") in already_used_places:
+                                    logger.info(f"이미 사용된 장소 발견: {search_place.get('name')}, 대체 검색 시도...")
+                                    
+                                    # 중복 방지를 위한 대체 검색 함수 호출
+                                    alt_place = find_alternative_place(
+                                        places_tool,
+                                        query, 
+                                        already_used_places,
+                                        existing_location,
+                                        primary_region
+                                    )
+                                    
+                                    if alt_place:
+                                        search_place = alt_place
+                                    else:
+                                        # 대체 검색 실패, 다음 쿼리로 넘어감
+                                        continue
+                                
+                                if search_place and search_place.get("formatted_address"):
+                                    found_place = search_place
+                                    logger.info(f"장소 찾음: {search_place.get('name')} - {search_place.get('formatted_address')}")
+                                    # 사용된 장소 추적
+                                    if search_place.get("place_id"):
+                                        already_used_places.add(search_place.get("place_id"))
+                                    break
+                            except Exception as e:
+                                logger.error(f"인근 검색 오류 (쿼리: {query}, 반경: {radius}m): {str(e)}")
+            
+            # 2. 인근 검색 실패 시 지역 기반 검색
+            if not found_place:
+                logger.info("인근 검색 실패, 지역 기반 검색 시도")
+                
+                # 검색 지역 설정
+                search_region = primary_region or "서울"
+                logger.info(f"지역 기반 검색 지역: {search_region}")
+                
+                # 검색 유형 후보
+                if place_type:
+                    search_types = [place_type]
+                else:
+                    search_types = []
+                    # 카테고리별 기본 유형 설정
+                    if "식" in category or "음식" in category or "식당" in category:
+                        search_types = ["restaurant", "food"]
+                    elif "카페" in category or "커피" in category:
+                        search_types = ["cafe", "coffee_shop"] 
+                    elif "쇼핑" in category or "마트" in category:
+                        search_types = ["shopping_mall", "department_store"]
+                    else:
+                        default_type = get_place_type(category)
+                        if default_type:
+                            search_types = [default_type]
+                        else:
+                            search_types = ["point_of_interest"]
+                
+                # 검색 쿼리 생성
+                search_queries = []
+                if "식" in category or "음식" in category or "식당" in category:
+                    search_queries = [f"{search_region} 맛집", f"{search_region} 식당", f"{search_region} 레스토랑"]
+                elif "카페" in category or "커피" in category:
+                    search_queries = [f"{search_region} 카페", f"{search_region} 커피숍"]
+                elif "쇼핑" in category or "마트" in category:
+                    search_queries = [f"{search_region} 쇼핑몰", f"{search_region} 백화점"]
+                else:
+                    search_queries = [f"{search_region} {category}"]
+                
+                # 중복 검색 방지
+                attempted_searches = set()
+                
+                # 지역 + 유형 기반 검색
+                for search_type in search_types:
+                    if found_place:
+                        break
+                        
+                    for query in search_queries:
+                        search_key = f"{query}_{search_type}"
+                        if search_key in attempted_searches:
+                            continue
+                            
+                        attempted_searches.add(search_key)
+                        logger.info(f"'{query}' 지역 검색 중 (유형: {search_type})...")
+                        
+                        try:
+                            search_place = search_place_with_retry(places_tool, query, search_type)
+                            
+                            # 이미 사용된 장소면 대체 검색 시도
+                            if search_place and search_place.get("place_id") in already_used_places:
+                                logger.info(f"이미 사용된 장소 발견: {search_place.get('name')}, 대체 검색 시도...")
+                                
+                                alt_place = find_alternative_place(
+                                    places_tool,
+                                    query, 
+                                    already_used_places,
+                                    primary_location,
+                                    search_region
+                                )
+                                
+                                if alt_place:
+                                    search_place = alt_place
+                                else:
+                                    # 대체 검색 실패, 다음 쿼리로 넘어감
+                                    continue
+                            
+                            if search_place and search_place.get("formatted_address"):
+                                found_place = search_place
+                                logger.info(f"장소 찾음: {search_place.get('name')} - {search_place.get('formatted_address')}")
+                                # 사용된 장소 추적
+                                if search_place.get("place_id"):
+                                    already_used_places.add(search_place.get("place_id"))
+                                break
+                        except Exception as e:
+                            logger.error(f"지역 검색 오류 (쿼리: {query}): {str(e)}")
+            
+            # 3. 마지막 시도: 대체 검색 로직
+            if not found_place:
+                logger.info("모든 기본 검색 실패, 대체 검색 로직 시도")
+                
+                found_place = find_alternative_place(
+                    places_tool,
+                    category, 
+                    already_used_places,
+                    primary_location,
+                    primary_region
+                )
+                
+                if found_place:
+                    logger.info(f"대체 검색으로 장소 찾음: {found_place.get('name')} - {found_place.get('formatted_address')}")
+                    # 사용된 장소 추적
+                    if found_place.get("place_id"):
+                        already_used_places.add(found_place.get("place_id"))
             
             # 장소를 찾았으면 정보 업데이트
             if found_place:
@@ -1018,20 +1144,562 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
                         if "강남" in new_location:
                             new_location = f"서울특별시 {new_location}"
                     
-                    print(f"주소 업데이트: '{schedule.get('location', '')}' -> '{new_location}'")
+                    logger.info(f"주소 업데이트: '{schedule.get('location', '')}' -> '{new_location}'")
                     schedule["location"] = new_location
                 
                 # 좌표 업데이트
                 if found_place.get("latitude") and found_place.get("longitude"):
                     schedule["latitude"] = found_place["latitude"]
                     schedule["longitude"] = found_place["longitude"]
-                    print(f"좌표 업데이트: [{found_place['latitude']}, {found_place['longitude']}]")
+                    logger.info(f"좌표 업데이트: [{found_place['latitude']}, {found_place['longitude']}]")
             else:
-                print(f"'{category}'에 대한 적합한 장소를 찾을 수 없음")
+                logger.info(f"'{category}'에 대한 적합한 장소를 찾을 수 없음")
     
-    print("위치 정보 보강 완료")
+    logger.info("위치 정보 보강 완료")
     return enhanced_data
 
+# 장소 유형 매핑 테이블 (구글 문서 기반으로 개선)
+def get_place_type_mapping() -> Dict[str, List[str]]:
+    """장소 유형 매핑 테이블 제공"""
+    return {
+        # 음식점 관련
+        "식당": ["restaurant", "food"],
+        "맛집": ["restaurant", "food"],
+        "음식점": ["restaurant", "food"],
+        "레스토랑": ["restaurant"],
+        "한식": ["restaurant"],
+        "중식": ["chinese_restaurant"],
+        "일식": ["japanese_restaurant"],
+        "양식": ["restaurant"],
+        "분식": ["restaurant", "food"],
+        "치킨": ["meal_takeaway", "restaurant"],
+        "피자": ["pizza_restaurant"],
+        "햄버거": ["hamburger_restaurant"],
+        "카페": ["cafe", "coffee_shop"],
+        "커피": ["cafe", "coffee_shop"],
+        "디저트": ["bakery", "cafe", "dessert_shop"],
+        "베이커리": ["bakery"],
+        "아이스크림": ["ice_cream_shop"],
+        "케이크": ["bakery", "dessert_shop"],
+        "빵집": ["bakery"],
+        "도넛": ["donut_shop"],
+        "주점": ["bar", "pub"],
+        "술집": ["bar", "pub"],
+        "와인바": ["wine_bar"],
+        
+        # 학교 관련
+        "대학교": ["university"],
+        "대학": ["university"],
+        "학교": ["school"],
+        "초등학교": ["primary_school"],
+        "중학교": ["secondary_school"],
+        "고등학교": ["secondary_school"],
+        "유치원": ["preschool"],
+        
+        # 스포츠 및 레저
+        "경기장": ["stadium"],
+        "월드컵": ["stadium"],
+        "축구장": ["stadium"],
+        "야구장": ["stadium"],
+        "체육관": ["gym", "stadium"],
+        "수영장": ["swimming_pool"],
+        "공원": ["park"],
+        "놀이공원": ["amusement_park"],
+        "워터파크": ["water_park"],
+        "식물원": ["botanical_garden"],
+        "동물원": ["zoo"],
+        "수족관": ["aquarium"],
+        "볼링장": ["bowling_alley"],
+        "영화관": ["movie_theater"],
+        "극장": ["movie_theater", "performing_arts_theater"],
+        "미술관": ["art_gallery", "museum"],
+        "박물관": ["museum"],
+        "노래방": ["karaoke"],
+        
+        # 쇼핑
+        "쇼핑몰": ["shopping_mall"],
+        "마트": ["supermarket", "grocery_store"],
+        "백화점": ["department_store"],
+        "편의점": ["convenience_store"],
+        "시장": ["market"],
+        "아울렛": ["shopping_mall", "store"],
+        "가구점": ["furniture_store"],
+        "전자제품": ["electronics_store"],
+        "서점": ["book_store"],
+        "문구점": ["store"],
+        "의류매장": ["clothing_store"],
+        "신발가게": ["shoe_store"],
+        "화장품": ["store"],
+        "보석가게": ["jewelry_store"],
+        "장난감": ["store"],
+        "스포츠용품": ["sporting_goods_store"],
+        
+        # 교통
+        "공항": ["airport"],
+        "국제공항": ["international_airport"],
+        "기차역": ["train_station"],
+        "버스터미널": ["bus_station"],
+        "버스정류장": ["bus_stop"],
+        "지하철역": ["subway_station"],
+        "택시정류장": ["taxi_stand"],
+        "주차장": ["parking"],
+        "휴게소": ["rest_stop"],
+        
+        # 숙박
+        "호텔": ["hotel", "lodging"],
+        "펜션": ["lodging"],
+        "리조트": ["resort_hotel", "lodging"],
+        "모텔": ["motel", "lodging"],
+        "게스트하우스": ["guest_house", "lodging"],
+        "민박": ["lodging"],
+        "캠핑장": ["campground"],
+        
+        # 의료
+        "병원": ["hospital"],
+        "의원": ["doctor"],
+        "치과": ["dentist", "dental_clinic"],
+        "약국": ["pharmacy"],
+        "동물병원": ["veterinary_care"],
+        "한의원": ["doctor"],
+        "보건소": ["doctor", "hospital"],
+        
+        # 금융
+        "은행": ["bank"],
+        "ATM": ["atm"],
+        "증권사": ["finance"],
+        "보험사": ["insurance_agency"],
+        
+        # 서비스
+        "미용실": ["hair_salon"],
+        "네일샵": ["nail_salon"],
+        "피부관리실": ["skin_care_clinic"],
+        "세탁소": ["laundry"],
+        "부동산": ["real_estate_agency"],
+        "이사": ["moving_company"],
+        "변호사": ["lawyer"],
+        "경찰서": ["police"],
+        "소방서": ["fire_station"],
+        "우체국": ["post_office"],
+        "시청": ["city_hall"],
+        "구청": ["local_government_office"],
+        "대사관": ["embassy"],
+        
+        # 종교
+        "교회": ["church"],
+        "성당": ["church"],
+        "사찰": ["place_of_worship"],
+        "절": ["place_of_worship"],
+        "사원": ["hindu_temple"],
+        "모스크": ["mosque"],
+        "신사": ["place_of_worship"],
+        
+        # 교육문화
+        "도서관": ["library"],
+        "독서실": ["library"],
+        "문화센터": ["cultural_center"],
+        "전시관": ["museum", "art_gallery"],
+        "과학관": ["museum"],
+        "콘서트홀": ["concert_hall"],
+        "공연장": ["performing_arts_theater"],
+        
+        # 기타
+        "관광지": ["tourist_attraction"],
+        "명소": ["tourist_attraction"],
+        "해변": ["beach"],
+        "온천": ["spa"],
+        "산": ["natural_feature"],
+        "광장": ["plaza"],
+        "전망대": ["observation_deck"],
+        "역사유적": ["historical_landmark"]
+    }
+
+
+# 장소 이름에서 가장 적합한 구글 장소 유형을 유추하는 향상된 함수
+def get_place_type(place_name: str) -> Optional[str]:
+    """장소 이름에서 가장 적합한 구글 장소 유형을 유추"""
+    logger = logging.getLogger('place_type_detector')
+    
+    # 입력이 없으면 None 반환
+    if not place_name:
+        return None
+    
+    place_name_lower = place_name.lower()
+    type_mapping = get_place_type_mapping()
+    
+    # 1. 직접 매칭 - 장소명에 유형 키워드가 있는지 확인
+    for keyword, types in type_mapping.items():
+        if keyword in place_name_lower:
+            logger.info(f"'{place_name}' 장소에서 '{keyword}' 키워드 발견, 유형: {types[0]}")
+            return types[0]
+    
+    # 2. 패턴 기반 유추 - 일반적인 패턴 확인
+    
+    # 음식 관련
+    if re.search(r'(식당|음식|맛집|레스토랑|밥집|먹거리)', place_name_lower):
+        return "restaurant"
+    elif re.search(r'(카페|커피|디저트|cake|coffee)', place_name_lower):
+        return "cafe"
+    elif re.search(r'(빵|베이커리|bakery)', place_name_lower):
+        return "bakery"
+    elif re.search(r'(치킨|통닭|프라이드)', place_name_lower):
+        return "meal_takeaway"
+    elif re.search(r'(피자|pizza)', place_name_lower):
+        return "pizza_restaurant"
+    elif re.search(r'(햄버거|burger)', place_name_lower):
+        return "hamburger_restaurant"
+    elif re.search(r'(주점|술집|포차|bar|pub)', place_name_lower):
+        return "bar"
+    
+    # 교육 관련
+    elif re.search(r'(대학교|대학|캠퍼스|university)', place_name_lower):
+        return "university"
+    elif re.search(r'(초등학교|중학교|고등학교|학교)', place_name_lower):
+        return "school"
+    elif re.search(r'(도서관|library)', place_name_lower):
+        return "library"
+    
+    # 스포츠/레저 관련
+    elif re.search(r'(경기장|구장|월드컵|야구장|축구장|stadium)', place_name_lower):
+        return "stadium"
+    elif re.search(r'(수영장|pool)', place_name_lower):
+        return "swimming_pool"
+    elif re.search(r'(공원|park)', place_name_lower):
+        return "park"
+    elif re.search(r'(놀이공원|테마파크|amusement)', place_name_lower):
+        return "amusement_park"
+    elif re.search(r'(동물원|zoo)', place_name_lower):
+        return "zoo"
+    elif re.search(r'(극장|영화관|시네마|cinema)', place_name_lower):
+        return "movie_theater"
+    elif re.search(r'(박물관|museum)', place_name_lower):
+        return "museum"
+    elif re.search(r'(미술관|갤러리|gallery)', place_name_lower):
+        return "art_gallery"
+    
+    # 쇼핑 관련
+    elif re.search(r'(쇼핑|mall|백화점|몰)', place_name_lower):
+        return "shopping_mall"
+    elif re.search(r'(마트|슈퍼|market|마켓)', place_name_lower):
+        return "supermarket"
+    elif re.search(r'(편의점|store)', place_name_lower):
+        return "convenience_store"
+    
+    # 교통 관련
+    elif re.search(r'(공항|airport)', place_name_lower):
+        return "airport"
+    elif re.search(r'(역|station|기차|철도)', place_name_lower):
+        return "train_station"
+    elif re.search(r'(버스|터미널|정류장)', place_name_lower):
+        return "bus_station"
+    elif re.search(r'(지하철)', place_name_lower):
+        return "subway_station"
+    
+    # 숙박 관련
+    elif re.search(r'(호텔|hotel|숙박|모텔|펜션|리조트|resort)', place_name_lower):
+        return "lodging"
+    
+    # 의료 관련
+    elif re.search(r'(병원|의원|clinic|hospital)', place_name_lower):
+        return "hospital"
+    elif re.search(r'(약국|pharmacy|drug)', place_name_lower):
+        return "pharmacy"
+    elif re.search(r'(치과|dental)', place_name_lower):
+        return "dentist"
+    
+    # 기타
+    elif re.search(r'(은행|bank)', place_name_lower):
+        return "bank"
+    elif re.search(r'(관광|명소|tourist|attraction)', place_name_lower):
+        return "tourist_attraction"
+    elif re.search(r'(교회|성당|church)', place_name_lower):
+        return "church"
+    elif re.search(r'(사찰|절|temple)', place_name_lower):
+        return "hindu_temple"
+    elif re.search(r'(미용|헤어|hair)', place_name_lower):
+        return "hair_salon"
+    elif re.search(r'(사무실|office)', place_name_lower):
+        return "corporate_office"
+    elif re.search(r'(온천|spa|목욕탕)', place_name_lower):
+        return "spa"
+    
+    # 3. 특정 대상 이름 패턴 (한국 특화)
+    if "롯데월드" in place_name_lower or "에버랜드" in place_name_lower:
+        return "amusement_park"
+    elif "스타벅스" in place_name_lower or "투썸" in place_name_lower or "이디야" in place_name_lower:
+        return "cafe"
+    elif "롯데마트" in place_name_lower or "이마트" in place_name_lower or "홈플러스" in place_name_lower:
+        return "supermarket"
+    elif "CGV" in place_name_lower or "롯데시네마" in place_name_lower or "메가박스" in place_name_lower:
+        return "movie_theater"
+    elif "신세계" in place_name_lower or "롯데백화점" in place_name_lower or "현대백화점" in place_name_lower:
+        return "department_store"
+    
+    # 4. 장소명이 짧은 일반명사인 경우 (한국어)
+    if len(place_name_lower) < 5:
+        if place_name_lower in ["숲", "공원", "산"]:
+            return "park"
+        elif place_name_lower in ["식당", "밥집"]:
+            return "restaurant"
+        elif place_name_lower in ["카페"]:
+            return "cafe"
+        elif place_name_lower in ["마트"]:
+            return "supermarket"
+        elif place_name_lower in ["학교"]:
+            return "school"
+    
+    # 5. 대표적인 장소 유형 추론 (지역 특성)
+    if re.search(r'(강남|명동|홍대|이태원|가로수길)', place_name_lower):
+        # 유명 상권 지역은 음식점/카페 가능성이 높음
+        return "restaurant"
+    elif re.search(r'(산|봉|계곡|천|강|호수|바다)', place_name_lower):
+        # 자연 지형 관련 이름
+        return "natural_feature"
+    
+    # 기본값: 일반 관심장소 (POI)
+    logger.info(f"'{place_name}' 장소에서 유형을 유추할 수 없음, 일반 POI 적용")
+    return "point_of_interest"
+
+
+def search_place_with_retry(places_tool, query: str, place_type: str = None, region: str = None, retries: int = 2, delay: float = 0.5) -> Optional[Dict]:
+    """
+    재시도 로직을 포함한 장소 검색 함수
+    
+    Args:
+        places_tool: GooglePlacesTool 인스턴스
+        query: 검색 쿼리
+        place_type: 장소 유형 (restaurant, cafe 등)
+        region: 지역 컨텍스트 (서울, 부산 등)
+        retries: 재시도 횟수
+        delay: 재시도 간 지연 시간(초)
+        
+    Returns:
+        장소 정보 딕셔너리 또는 None (실패 시)
+    """
+    logger = logging.getLogger('place_search')
+    
+    # 검색 쿼리 최적화
+    optimized_query = places_tool.build_search_query(query, place_type, region)
+    cache_key = f"{optimized_query}_{place_type or ''}"
+    
+    # 캐시 확인
+    if hasattr(places_tool, 'search_cache') and cache_key in places_tool.search_cache:
+        logger.info(f"캐시에서 '{cache_key}' 검색 결과 반환")
+        return places_tool.search_cache[cache_key]
+    
+    # 재시도 로직
+    for attempt in range(retries):
+        try:
+            # Places API 매개변수 최적화
+            if place_type:
+                result = places_tool.search_place_detailed(optimized_query, place_type)
+            else:
+                result = places_tool.search_place_detailed(optimized_query)
+                
+            if result:
+                logger.info(f"'{optimized_query}' 검색 성공 (시도 {attempt+1}/{retries})")
+                
+                # 캐시에 저장
+                if hasattr(places_tool, 'search_cache'):
+                    places_tool.search_cache[cache_key] = result
+                    logger.info(f"'{cache_key}' 검색 결과 캐싱")
+                
+                return result
+                
+            logger.warning(f"'{optimized_query}' 검색 실패 (시도 {attempt+1}/{retries})")
+        except Exception as e:
+            logger.error(f"검색 시도 {attempt+1}/{retries} 실패: {str(e)}")
+        
+        if attempt < retries - 1:
+            # 마지막 시도 전이면 일시 지연 후 재시도
+            time.sleep(delay)
+    
+    # 모든 시도 실패 후 None 반환
+    logger.warning(f"'{optimized_query}' 검색이 {retries}번 모두 실패")
+    return None
+
+
+def find_alternative_place(places_tool, original_query: str, used_places: Set[str], primary_location: Optional[Tuple[float, float]] = None, region: str = None) -> Optional[Dict]:
+    """
+    이미 사용된 장소를 피해 대안 찾기
+    
+    Args:
+        places_tool: GooglePlacesTool 인스턴스
+        original_query: 원본 검색 쿼리
+        used_places: 이미 사용된 장소 ID 집합
+        primary_location: 기준 위치 좌표 (위도, 경도)
+        region: 지역 컨텍스트 (서울, 부산 등)
+        
+    Returns:
+        장소 정보 딕셔너리 또는 None (실패 시)
+    """
+    logger = logging.getLogger('alternative_search')
+    logger.info(f"'{original_query}'에 대한 대체 장소 검색 시작")
+    
+    # 이미 시도한 쿼리 추적
+    attempted_queries = set()
+    
+    # 원본 쿼리에서 장소 유형 추출
+    place_type = get_place_type(original_query)
+    logger.info(f"유추된 장소 유형: {place_type or '없음'}")
+    
+    # 검색 변형 전략 1: 쿼리 변형
+    query_variants = []
+    
+    # 기본 변형
+    query_variants.extend([
+        f"{original_query} 인근",
+        f"{original_query} 근방",
+        f"{original_query} 주변",
+        f"다른 {original_query}"
+    ])
+    
+    # 장소 유형별 키워드 추가
+    if place_type:
+        type_mapping = get_place_type_mapping()
+        
+        # 유형에 따른 대체 키워드 찾기
+        for keyword, types in type_mapping.items():
+            if place_type in types:
+                if keyword not in original_query:
+                    # 'restaurant' 유형이면 '식당', '레스토랑' 등을 추가
+                    if region:
+                        query_variants.append(f"{region} {keyword}")
+                    else:
+                        query_variants.append(keyword)
+    
+    # 검색 변형 전략 2: 지역 기반 변형
+    if region:
+        for district in ["중구", "남구", "북구", "동구", "서구"]:
+            if district not in original_query:
+                query_variants.append(f"{region} {district} {original_query}")
+    
+    # 쿼리 변형 중복 제거 및 로그
+    query_variants = list(set(query_variants))
+    logger.info(f"검색 쿼리 변형: {query_variants}")
+    
+    # 쿼리 변형으로 검색
+    for variant in query_variants:
+        if variant in attempted_queries:
+            continue
+        
+        attempted_queries.add(variant)
+        logger.info(f"변형 쿼리 '{variant}' 검색 시도")
+        
+        result = search_place_with_retry(places_tool, variant, place_type, region)
+        
+        if result and result.get("place_id") not in used_places:
+            logger.info(f"대체 검색 성공: '{variant}' -> {result.get('name')}")
+            return result
+    
+    # 검색 전략 3: 주변 검색 (좌표가 있는 경우)
+    if primary_location:
+        logger.info(f"위치 기반 검색 시도: {primary_location}")
+        
+        # 다양한 반경으로 시도
+        for radius in [1000, 2000, 3000, 5000]:
+            try:
+                # 유형이 없으면 기본 쿼리로 검색
+                search_term = original_query
+                if search_term in attempted_queries:
+                    search_term = f"near {original_query}"
+                
+                attempted_queries.add(search_term)
+                location_str = f"{primary_location[0]},{primary_location[1]}"
+                
+                result = places_tool.search_nearby_detailed(
+                    search_term, 
+                    location=location_str, 
+                    radius=radius,
+                    place_type=place_type
+                )
+                
+                if result and result.get("place_id") not in used_places:
+                    logger.info(f"위치 기반 대체 검색 성공 (반경 {radius}m): {result.get('name')}")
+                    return result
+                
+                # 유형 기반 장소 찾기 시도
+                if place_type:
+                    # 지역명을 접두사로 사용하여 더 관련성 높은 결과 찾기
+                    type_name = "장소"  # 기본값
+                    for keyword, types in get_place_type_mapping().items():
+                        if place_type in types:
+                            type_name = keyword
+                            break
+                    
+                    logger.info(f"유형 기반 주변 검색 시도: {type_name}, 반경 {radius}m")
+                    search_term = f"{region or ''} {type_name}"
+                    
+                    if search_term.strip() in attempted_queries:
+                        continue
+                    
+                    attempted_queries.add(search_term.strip())
+                    
+                    result = places_tool.search_nearby_detailed(
+                        search_term,
+                        location=location_str, 
+                        radius=radius,
+                        place_type=place_type
+                    )
+                    
+                    if result and result.get("place_id") not in used_places:
+                        logger.info(f"유형 기반 주변 검색 성공 (반경 {radius}m): {result.get('name')}")
+                        return result
+            except Exception as e:
+                logger.error(f"위치 기반 대체 검색 실패 (반경 {radius}m): {str(e)}")
+    
+    # 모든 시도 실패 시 대체 유형으로 시도
+    if place_type:
+        alt_types = get_alternative_types(place_type)
+        logger.info(f"대체 유형으로 검색 시도: {alt_types}")
+        
+        for alt_type in alt_types:
+            if region:
+                search_term = f"{region} {original_query}"
+            else:
+                search_term = original_query
+                
+            if f"{search_term}_{alt_type}" in attempted_queries:
+                continue
+                
+            attempted_queries.add(f"{search_term}_{alt_type}")
+            logger.info(f"대체 유형 '{alt_type}' 검색 시도: '{search_term}'")
+            
+            result = search_place_with_retry(places_tool, search_term, alt_type, region)
+            
+            if result and result.get("place_id") not in used_places:
+                logger.info(f"대체 유형 검색 성공: '{search_term}' ({alt_type}) -> {result.get('name')}")
+                return result
+    
+    # 모든 시도 실패
+    logger.warning(f"'{original_query}'에 대한 모든 대체 검색 실패")
+    return None
+
+
+def get_alternative_types(place_type: str) -> List[str]:
+    """주어진 장소 유형에 대한 대체 유형 목록 반환"""
+    # 유형별 대체 유형 맵핑
+    alt_types_map = {
+        "restaurant": ["food", "meal_takeaway", "cafe"],
+        "cafe": ["coffee_shop", "restaurant", "bakery"],
+        "stadium": ["sports_complex", "arena"],
+        "university": ["school", "secondary_school"],
+        "shopping_mall": ["department_store", "store", "clothing_store"],
+        "supermarket": ["grocery_store", "convenience_store"],
+        "hospital": ["doctor", "pharmacy"],
+        "park": ["tourist_attraction", "natural_feature"],
+        "hotel": ["lodging", "resort_hotel"],
+        "bank": ["atm", "finance"],
+        "bar": ["pub", "restaurant"],
+        "movie_theater": ["entertainment", "performing_arts_theater"],
+        # 기본 대체 유형
+        "default": ["point_of_interest", "establishment"]
+    }
+    
+    # 주어진 유형에 대한 대체 유형 반환 (없으면 기본값)
+    if place_type in alt_types_map:
+        return alt_types_map[place_type]
+    else:
+        return alt_types_map["default"]
 # ----- 엔드포인트 정의 -----
 
 @app.get("/")
