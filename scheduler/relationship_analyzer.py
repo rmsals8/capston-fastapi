@@ -282,10 +282,36 @@ def enhance_schedule_with_relationships(voice_input: str, schedules: Dict[str, A
     else:
         logger.info("적용할 관계 정보가 없음")
     
+    # 일정 배열 재구성 (타입 변경 후 적절한 배열로 이동)
+    fixed_schedules = schedules.get("fixedSchedules", [])
+    flexible_schedules = []
+    
+    # 유연 일정 중 FIXED로 변경된 일정은 고정 일정 배열로 이동
+    for schedule in schedules.get("flexibleSchedules", []):
+        if schedule.get("type") == "FIXED":
+            # 시작/종료 시간이 있는지 확인하여 유효한 고정 일정인지 검증
+            if "startTime" in schedule and "endTime" in schedule:
+                fixed_schedules.append(schedule)
+                logger.info(f"일정 '{schedule.get('name', '')}' 유연에서 고정으로 이동")
+            else:
+                # 시간 정보가 없으면 FLEXIBLE로 되돌림
+                schedule["type"] = "FLEXIBLE"
+                flexible_schedules.append(schedule)
+        else:
+            flexible_schedules.append(schedule)
+    
     # 업데이트된 일정 로깅
-    flexible_schedules = schedules.get("flexibleSchedules", [])
+    logger.info("최종 일정 배열 재구성 결과:")
+    for idx, schedule in enumerate(fixed_schedules):
+        logger.info(f"고정 일정 {idx+1}: {schedule.get('name', '')}, 타입: {schedule.get('type', 'N/A')}, 시간: {schedule.get('startTime', 'N/A')} ~ {schedule.get('endTime', 'N/A')}, 우선순위: {schedule.get('priority', 'N/A')}")
+    
     for idx, schedule in enumerate(flexible_schedules):
-        logger.info(f"최종 유연 일정 {idx+1}: {schedule.get('name', '')}, 타입: {schedule.get('type', 'N/A')}, 시간: {schedule.get('startTime', 'N/A')} ~ {schedule.get('endTime', 'N/A')}, 우선순위: {schedule.get('priority', 'N/A')}")
+        logger.info(f"유연 일정 {idx+1}: {schedule.get('name', '')}, 타입: {schedule.get('type', 'N/A')}, 시간: {schedule.get('startTime', 'N/A')} ~ {schedule.get('endTime', 'N/A')}, 우선순위: {schedule.get('priority', 'N/A')}")
+    
+    # 수정된 일정 배열 반환
+    updated_schedules = schedules.copy()
+    updated_schedules["fixedSchedules"] = fixed_schedules
+    updated_schedules["flexibleSchedules"] = flexible_schedules
     
     logger.info("일정 간 관계 정보 적용 완료")
-    return schedules
+    return updated_schedules

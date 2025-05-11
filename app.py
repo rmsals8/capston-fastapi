@@ -17,13 +17,14 @@ from geopy.distance import geodesic
 import math
 import random
 from fastapi.middleware.cors import CORSMiddleware
-
+from scheduler.utils import detect_and_resolve_time_conflicts
 from scheduler import (
     create_schedule_chain, 
     create_enhancement_chain,
     apply_time_inference,
     apply_priorities,
-    enhance_schedule_with_relationships
+    enhance_schedule_with_relationships,
+    parse_datetime
 )
 # 환경 변수 로드
 load_dotenv()
@@ -645,6 +646,7 @@ def create_schedule_chain():
 
 
 
+
 def enhance_location_data(schedule_data: Dict) -> Dict:
     """
     일정 데이터의 위치 정보를 Google Places API를 사용하여 보강합니다.
@@ -678,12 +680,80 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
                 return True, region
         return False, ""
     
+    # 검색 함수 개선 - 재시도 로직 추가
+    def search_place_with_retry(query, retries=3, delay=1):
+        """재시도 로직이 포함된 장소 검색 함수"""
+        for attempt in range(retries):
+            try:
+                result = places_tool.search_place_detailed(query)
+                if result:
+                    return result
+            except Exception as e:
+                print(f"검색 시도 {attempt+1}/{retries} 실패: {str(e)}")
+                time.sleep(delay)  # 일시 지연 후 재시도
+        
+        # 모든 시도 실패 후 None 반환
+        return None
+    
+    # 대체 검색 로직 (중복 방지 개선)
+    def find_alternative(original_query, used_places, primary_location=None):
+        """이미 사용된 장소를 피해 대안 찾기"""
+        # 검색 쿼리 변형
+        variants = [
+            f"{original_query} 인근",
+            f"{original_query} 근방",
+            f"{original_query} 주변",
+            f"다른 {original_query}"
+        ]
+        
+        # 지역 기반 변형
+        if primary_region:
+            for district in ["중구", "남구", "북구", "동구", "서구"]:
+                variants.append(f"{primary_region} {district} {original_query}")
+        
+        # 변형 쿼리로 검색
+        for variant in variants:
+            try:
+                result = search_place_with_retry(variant)
+                if result and result.get("place_id") not in used_places:
+                    print(f"대체 검색 성공: '{variant}' -> {result.get('name')}")
+                    return result
+            except Exception as e:
+                print(f"대체 검색 실패 ('{variant}'): {str(e)}")
+        
+        # 위치 기반 검색 (좌표가 있는 경우)
+        if primary_location:
+            try:
+                # 다양한 반경으로 시도
+                for radius in [1000, 2000, 3000]:
+                    result = places_tool.search_nearby_detailed(
+                        original_query, 
+                        location=f"{primary_location[0]},{primary_location[1]}", 
+                        radius=radius
+                    )
+                    
+                    if result and result.get("place_id") not in used_places:
+                        print(f"위치 기반 대체 검색 성공 (반경 {radius}m): {result.get('name')}")
+                        return result
+            except Exception as e:
+                print(f"위치 기반 대체 검색 실패: {str(e)}")
+        
+        # 모든 시도 실패
+        return None
+    
     # 고정 일정을 통해 주요 지역 컨텍스트 파악
     primary_region = None
+    primary_location = None
+    
     if "fixedSchedules" in enhanced_data and enhanced_data["fixedSchedules"]:
         main_fixed_schedule = enhanced_data["fixedSchedules"][0]
         place_name = main_fixed_schedule.get("name", "")
         location = main_fixed_schedule.get("location", "")
+        
+        # 기본 위치 정보 저장
+        if main_fixed_schedule.get("latitude") and main_fixed_schedule.get("longitude"):
+            primary_location = (main_fixed_schedule.get("latitude"), main_fixed_schedule.get("longitude"))
+            print(f"주요 위치 좌표: {primary_location}")
         
         # 장소명이나 위치에서 지역 추출
         has_region, region = contains_region(place_name)
@@ -727,8 +797,8 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
                 # 컨텍스트가 없으면 장소명 그대로 사용
                 print(f"기본 검색 시도: '{search_term}'")
             
-            # 첫 번째 검색 실행
-            place_info = places_tool.search_place_detailed(search_term)
+            # 첫 번째 검색 실행 (재시도 로직 적용)
+            place_info = search_place_with_retry(search_term)
             
             # 결과 확인
             if place_info and place_info.get("formatted_address"):
@@ -744,32 +814,39 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
                     clean_name = place_name.replace(region_in_name, "").strip()
                     if clean_name:  # 비어있지 않으면
                         print(f"지역명 제거 후 검색 시도: '{clean_name}'")
-                        place_info = places_tool.search_place_detailed(clean_name)
+                        place_info = search_place_with_retry(clean_name)
                         if place_info and place_info.get("formatted_address"):
                             found_place = place_info
                             print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
                 
-                # 2-2: 그래도 실패하면 주요 지역 접두사 시도 (최대 3개)
+                # 2-2: 그래도 실패하면 대체 검색 로직 사용
                 if not found_place:
-                    # 컨텍스트와 다른 몇 개의 주요 도시만 시도
-                    fallback_regions = []
-                    if primary_region:
-                        # 주요 지역이 이미 있으면 다른 주요 도시 2개만 추가
-                        for region in major_regions:
-                            if region != primary_region and len(fallback_regions) < 2:
-                                fallback_regions.append(region)
-                    else:
-                        # 주요 지역이 없으면 상위 3개 주요 도시 시도
-                        fallback_regions = major_regions[:3]
+                    print(f"대체 검색 전략 시도...")
+                    found_place = find_alternative(place_name, already_used_places, primary_location)
                     
-                    for region in fallback_regions:
-                        search_term = f"{region} {place_name}"
-                        print(f"대체 지역 검색 시도: '{search_term}'")
-                        place_info = places_tool.search_place_detailed(search_term)
-                        if place_info and place_info.get("formatted_address"):
-                            found_place = place_info
-                            print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
-                            break
+                    if found_place:
+                        print(f"대체 검색으로 장소 찾음: {found_place.get('name')} - {found_place.get('formatted_address')}")
+                    else:
+                        # 2-3: 여전히 실패하면 주요 지역 접두사 시도 (최대 3개)
+                        # 컨텍스트와 다른 몇 개의 주요 도시만 시도
+                        fallback_regions = []
+                        if primary_region:
+                            # 주요 지역이 이미 있으면 다른 주요 도시 2개만 추가
+                            for region in major_regions:
+                                if region != primary_region and len(fallback_regions) < 2:
+                                    fallback_regions.append(region)
+                        else:
+                            # 주요 지역이 없으면 상위 3개 주요 도시 시도
+                            fallback_regions = major_regions[:3]
+                        
+                        for region in fallback_regions:
+                            search_term = f"{region} {place_name}"
+                            print(f"대체 지역 검색 시도: '{search_term}'")
+                            place_info = search_place_with_retry(search_term)
+                            if place_info and place_info.get("formatted_address"):
+                                found_place = place_info
+                                print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
+                                break
             
             # 장소를 찾았으면 정보 업데이트
             if found_place:
@@ -822,13 +899,13 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
             # 검색 쿼리 구성
             search_queries = []
             if "식사" in category or "식당" in category or "밥" in category:
-                search_queries = ["맛집", "레스토랑", "식당"]
+                search_queries = ["맛집", "레스토랑", "식당", "한식당", "음식점"]
             elif "카페" in category or "커피" in category:
-                search_queries = ["카페", "커피숍", "스타벅스"]
+                search_queries = ["카페", "커피숍", "스타벅스", "디저트카페", "베이커리"]
             elif "쇼핑" in category or "마트" in category:
-                search_queries = ["쇼핑몰", "마트", "백화점"]
+                search_queries = ["쇼핑몰", "마트", "백화점", "아울렛", "상점"]
             else:
-                search_queries = [category]
+                search_queries = [category] + [f"{category} 장소", f"{category} 명소"]
             
             # 여러 검색어로 시도하여 가장 적합한 결과 찾기
             found_place = None
@@ -837,6 +914,10 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
             attempted_searches = set()
             
             for query in search_queries:
+                # 이미 장소를 찾았으면 중단
+                if found_place:
+                    break
+                    
                 # 검색 쿼리 생성 (인근 검색 또는 컨텍스트 기반 검색)
                 if existing_location:
                     # 인근 장소 검색
@@ -846,13 +927,39 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
                     
                     attempted_searches.add(search_term)
                     print(f"인근 '{search_term}' 검색 중...")
-                    place_info = places_tool.search_nearby_detailed(search_term, existing_location)
                     
-                    # 이미 사용된 장소면 다음 결과 사용 
-                    if place_info and place_info.get("place_id") in already_used_places:
-                        print(f"이미 사용된 장소 발견: {place_info.get('name')}, 다른 결과 시도...")
-                        # 다른 검색어로 시도
-                        continue
+                    try:
+                        place_info = places_tool.search_nearby_detailed(search_term, existing_location)
+                        
+                        # 이미 사용된 장소면 대체 검색 시도
+                        if place_info and place_info.get("place_id") in already_used_places:
+                            print(f"이미 사용된 장소 발견: {place_info.get('name')}, 대체 검색 시도...")
+                            
+                            # 중복 방지를 위한 대체 검색 함수 호출
+                            alt_place_info = find_alternative(
+                                query, 
+                                already_used_places,
+                                primary_location=(
+                                    float(existing_location.split(',')[0]),
+                                    float(existing_location.split(',')[1])
+                                )
+                            )
+                            
+                            if alt_place_info:
+                                place_info = alt_place_info
+                            else:
+                                # 대체 검색 실패, 다음 쿼리로 넘어감
+                                continue
+                        
+                        if place_info and place_info.get("formatted_address"):
+                            found_place = place_info
+                            print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
+                            # 사용된 장소 추적
+                            if place_info.get("place_id"):
+                                already_used_places.add(place_info.get("place_id"))
+                            break
+                    except Exception as e:
+                        print(f"인근 검색 오류: {str(e)}")
                 else:
                     # 일반 지역 검색 (컨텍스트 기반)
                     if primary_region:
@@ -867,21 +974,31 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
                     
                     attempted_searches.add(search_term)
                     print(f"'{search_term}' 지역 검색 중...")
-                    place_info = places_tool.search_place_detailed(search_term)
                     
-                    # 이미 사용된 장소면 다른 결과 시도 
-                    if place_info and place_info.get("place_id") in already_used_places:
-                        print(f"이미 사용된 장소 발견: {place_info.get('name')}, 다른 결과 시도...")
-                        # 다른 검색어로 시도
-                        continue
-                
-                if place_info and place_info.get("formatted_address"):
-                    found_place = place_info
-                    print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
-                    # 사용된 장소 추적
-                    if place_info.get("place_id"):
-                        already_used_places.add(place_info.get("place_id"))
-                    break
+                    try:
+                        place_info = search_place_with_retry(search_term)
+                        
+                        # 이미 사용된 장소면 대체 검색 시도
+                        if place_info and place_info.get("place_id") in already_used_places:
+                            print(f"이미 사용된 장소 발견: {place_info.get('name')}, 대체 검색 시도...")
+                                                        # 중복 방지를 위한 대체 검색 함수 호출
+                            alt_place_info = find_alternative(query, already_used_places, primary_location)
+                            
+                            if alt_place_info:
+                                place_info = alt_place_info
+                            else:
+                                # 대체 검색 실패, 다음 쿼리로 넘어감
+                                continue
+                        
+                        if place_info and place_info.get("formatted_address"):
+                            found_place = place_info
+                            print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
+                            # 사용된 장소 추적
+                            if place_info.get("place_id"):
+                                already_used_places.add(place_info.get("place_id"))
+                            break
+                    except Exception as e:
+                        print(f"지역 검색 오류: {str(e)}")
             
             # 장소를 찾았으면 정보 업데이트
             if found_place:
@@ -914,6 +1031,7 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
     
     print("위치 정보 보강 완료")
     return enhanced_data
+
 # ----- 엔드포인트 정의 -----
 
 @app.get("/")
@@ -1144,12 +1262,17 @@ async def extract_schedule(request: ScheduleRequest):
             for idx, schedule in enumerate(schedule_data_with_time.get("flexibleSchedules", [])):
                 logger.info(f"유연 일정 {idx+1}: {schedule.get('name', '')}, 시작: {schedule.get('startTime', 'N/A')}, 종료: {schedule.get('endTime', 'N/A')}")
             
+            # 일정 간 시간 충돌 분석 및 해결
+            logger.info("일정 간 시간 충돌 분석 및 해결 시작...")
+            schedule_data_without_conflicts = detect_and_resolve_time_conflicts(schedule_data_with_time, min_gap_minutes=15)
+            logger.info("시간 충돌 해결 완료")
+            
             # 우선순위 분석 적용
             logger.info("우선순위 분석 적용 시작")
             enhanced_schedule_data = apply_priorities(
                 priority_chain, 
                 request.voice_input, 
-                schedule_data_with_time
+                schedule_data_without_conflicts
             )
             logger.info("우선순위 분석 적용 완료")
             
@@ -1197,7 +1320,7 @@ async def extract_schedule(request: ScheduleRequest):
             location_enhanced_data = json.loads(enhanced_json)
             logger.info("보강된 데이터 역직렬화 성공")
             
-            # 보강된 데이터 인코딩 테스트
+           # 보강된 데이터 인코딩 테스트
             if "fixedSchedules" in location_enhanced_data and location_enhanced_data["fixedSchedules"]:
                 first_fixed = location_enhanced_data["fixedSchedules"][0]
                 logger.info(f"보강된 첫 번째 고정 일정 인코딩 테스트:")
@@ -1227,12 +1350,31 @@ async def extract_schedule(request: ScheduleRequest):
             logger.info("위치 정보 보강 오류로 인해 강화 데이터 사용")
             location_enhanced_data = final_enhanced_data
         
+        # 최종 일정 분류 및 배치 (타입에 따라 올바른 배열에 분류)
+        logger.info("최종 일정 분류 및 배치...")
+        
+        # 모든 일정 수집
+        all_schedules = []
+        all_schedules.extend(location_enhanced_data.get("fixedSchedules", []))
+        all_schedules.extend(location_enhanced_data.get("flexibleSchedules", []))
+        
+        # 타입에 따라 재분류
+        fixed_schedules = [s for s in all_schedules if s.get("type") == "FIXED" and "startTime" in s and "endTime" in s]
+        flexible_schedules = [s for s in all_schedules if s.get("type") != "FIXED" or "startTime" not in s or "endTime" not in s]
+        
+        # 최종 데이터 구성
+        final_data = location_enhanced_data.copy()
+        final_data["fixedSchedules"] = fixed_schedules
+        final_data["flexibleSchedules"] = flexible_schedules
+        
+        logger.info(f"최종 분류: 고정 일정 {len(fixed_schedules)}개, 유연 일정 {len(flexible_schedules)}개")
+        
         # 6. Pydantic 모델로 변환하여 응답 검증
         try:
             logger.info(f"Pydantic 모델 변환 시작...")
             
             # 모델 변환 전 인코딩 확인을 위해 두 번 직렬화-역직렬화
-            final_json = json.dumps(location_enhanced_data, ensure_ascii=False)
+            final_json = json.dumps(final_data, ensure_ascii=False)
             final_data = json.loads(final_json)
             logger.info(f"최종 데이터 직렬화/역직렬화 성공, 길이: {len(final_json)}")
             
@@ -1282,7 +1424,7 @@ async def extract_schedule(request: ScheduleRequest):
             logger.info("JSONResponse로 대체 응답 생성")
             
             # 직접 직렬화
-            final_json = json.dumps(location_enhanced_data, ensure_ascii=False)
+            final_json = json.dumps(final_data, ensure_ascii=False)
             logger.info(f"직접 직렬화 성공, 길이: {len(final_json)}")
             
             # JSON으로 다시 파싱
