@@ -17,6 +17,13 @@ import math
 import random
 from fastapi.middleware.cors import CORSMiddleware
 
+
+from scheduler import (
+    create_schedule_chain, 
+    create_enhancement_chain,
+    apply_time_inference,
+    apply_priorities
+)
 # 환경 변수 로드
 load_dotenv()
 
@@ -635,10 +642,17 @@ def create_schedule_chain():
     
     return chain
 
+
+
 def enhance_location_data(schedule_data: Dict) -> Dict:
     """
     일정 데이터의 위치 정보를 Google Places API를 사용하여 보강합니다.
     보다 정확하고 완전한 주소 정보와 좌표를 제공합니다.
+    
+    수정사항:
+    - 지역 접두사 목록 대신 단계적 하이브리드 접근법 적용
+    - 컨텍스트 기반 단일 검색을 먼저 시도하고 실패 시에만 추가 검색
+    - 장소명에 지역명이 이미 포함되어 있는지 확인하는 로직 추가
     """
     print("위치 정보 보강 시작...")
     
@@ -648,6 +662,36 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
     # 복사본 생성하여 원본 데이터 보존
     enhanced_data = json.loads(json.dumps(schedule_data))
     
+    # 주요 지역 목록 (fallback 검색용)
+    major_regions = ["서울", "부산", "대구", "인천", "광주", "대전", "울산"]
+    
+    # 지역명이 장소명에 포함되어 있는지 확인하는 함수
+    def contains_region(place_name: str) -> (bool, str):
+        """장소명에 지역명이 포함되어 있는지 확인하고, 포함된 지역명 반환"""
+        for region in major_regions:
+            if region in place_name:
+                return True, region
+        return False, ""
+    
+    # 고정 일정을 통해 주요 지역 컨텍스트 파악
+    primary_region = None
+    if "fixedSchedules" in enhanced_data and enhanced_data["fixedSchedules"]:
+        main_fixed_schedule = enhanced_data["fixedSchedules"][0]
+        place_name = main_fixed_schedule.get("name", "")
+        location = main_fixed_schedule.get("location", "")
+        
+        # 장소명이나 위치에서 지역 추출
+        has_region, region = contains_region(place_name)
+        if has_region:
+            primary_region = region
+        else:
+            for region in major_regions:
+                if region in location:
+                    primary_region = region
+                    break
+    
+    print(f"주요 지역 컨텍스트: {primary_region or '없음'}")
+    
     # 고정 일정 처리
     if "fixedSchedules" in enhanced_data and isinstance(enhanced_data["fixedSchedules"], list):
         for i, schedule in enumerate(enhanced_data["fixedSchedules"]):
@@ -656,52 +700,71 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
             place_name = schedule.get("name", "")
             if not place_name:
                 continue
-                
-            # 더 정확한 검색을 위해 지역 정보 추가 (서울이 기본값)
-            region_prefixes = ["서울 ", "경기도 ", "부산 ", "울산 ", ""]
+            
+            # 장소 검색 시도
             found_place = None
             
-            # 하드코딩된 장소 처리
-            if "울산대학교" in place_name:
-                found_place = {
-                    'name': "울산대학교",
-                    'formatted_address': "울산광역시 남구 대학로 93",
-                    'latitude': 35.539,
-                    'longitude': 129.2567,
-                    'place_id': ''
-                }
-                print(f"울산대학교 정보 직접 설정: {found_place['formatted_address']}")
-            elif "강남역" in place_name:
-                found_place = {
-                    'name': "강남역",
-                    'formatted_address': "서울특별시 강남구 강남대로 지하 396",
-                    'latitude': 37.4980,
-                    'longitude': 127.0276,
-                    'place_id': ''
-                }
-                print(f"강남역 정보 직접 설정: {found_place['formatted_address']}")
-            elif "문수월드컵경기장" in place_name:
-                found_place = {
-                    'name': "울산 문수축구경기장",
-                    'formatted_address': "울산광역시 남구 문수로 44",
-                    'latitude': 35.5352727,
-                    'longitude': 129.2595198,
-                    'place_id': ''
-                }
-                print(f"문수월드컵경기장 정보 직접 설정: {found_place['formatted_address']}")
+            # 단계 1: 컨텍스트 기반 단일 검색 (주요 로직 변경)
+            search_term = place_name  # 기본값은 장소명 그대로
+            
+            # 장소명에 지역이 이미 포함되어 있는지 확인
+            has_region_in_name, region_in_name = contains_region(place_name)
+            
+            if has_region_in_name:
+                # 이미 지역명이 포함되어 있으면 그대로 사용
+                print(f"장소명에 지역({region_in_name})이 이미 포함됨")
+                search_term = place_name
+            elif primary_region:
+                # 주요 지역 컨텍스트가 있으면 추가
+                search_term = f"{primary_region} {place_name}"
+                print(f"컨텍스트 기반 검색 시도: '{search_term}'")
             else:
-                # 여러 지역 접두사를 시도하여 가장 적합한 결과 찾기
-                for prefix in region_prefixes:
-                    search_term = f"{prefix}{place_name}"
-                    print(f"장소 검색 시도: '{search_term}'")
+                # 컨텍스트가 없으면 장소명 그대로 사용
+                print(f"기본 검색 시도: '{search_term}'")
+            
+            # 첫 번째 검색 실행
+            place_info = places_tool.search_place_detailed(search_term)
+            
+            # 결과 확인
+            if place_info and place_info.get("formatted_address"):
+                found_place = place_info
+                print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
+            else:
+                # 단계 2: 첫 검색 실패 시 추가 전략 시도
+                print(f"첫 검색 실패, 추가 전략 시도...")
+                
+                # 2-1: 장소명에 지역명이 포함된 경우, 지역명 제거 후 검색
+                if has_region_in_name:
+                    # 지역명 제거한 깨끗한 장소명 생성
+                    clean_name = place_name.replace(region_in_name, "").strip()
+                    if clean_name:  # 비어있지 않으면
+                        print(f"지역명 제거 후 검색 시도: '{clean_name}'")
+                        place_info = places_tool.search_place_detailed(clean_name)
+                        if place_info and place_info.get("formatted_address"):
+                            found_place = place_info
+                            print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
+                
+                # 2-2: 그래도 실패하면 주요 지역 접두사 시도 (최대 3개)
+                if not found_place:
+                    # 컨텍스트와 다른 몇 개의 주요 도시만 시도
+                    fallback_regions = []
+                    if primary_region:
+                        # 주요 지역이 이미 있으면 다른 주요 도시 2개만 추가
+                        for region in major_regions:
+                            if region != primary_region and len(fallback_regions) < 2:
+                                fallback_regions.append(region)
+                    else:
+                        # 주요 지역이 없으면 상위 3개 주요 도시 시도
+                        fallback_regions = major_regions[:3]
                     
-                    # 상세 장소 검색 시도
-                    place_info = places_tool.search_place_detailed(search_term)
-                    
-                    if place_info and place_info.get("formatted_address"):
-                        found_place = place_info
-                        print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
-                        break
+                    for region in fallback_regions:
+                        search_term = f"{region} {place_name}"
+                        print(f"대체 지역 검색 시도: '{search_term}'")
+                        place_info = places_tool.search_place_detailed(search_term)
+                        if place_info and place_info.get("formatted_address"):
+                            found_place = place_info
+                            print(f"장소 찾음: {place_info.get('name')} - {place_info.get('formatted_address')}")
+                            break
             
             # 장소를 찾았으면 정보 업데이트
             if found_place:
@@ -738,27 +801,6 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
             # 유연 일정의 경우 카테고리 기반 검색
             category = schedule.get("name", "")
             
-            # 하드코딩된 장소 처리
-            if "문수월드컵경기장" in category:
-                found_place = {
-                    'name': "울산 문수축구경기장",
-                    'formatted_address': "울산광역시 남구 문수로 44",
-                    'latitude': 35.5352727,
-                    'longitude': 129.2595198,
-                    'place_id': ''
-                }
-                print(f"문수월드컵경기장 정보 직접 설정: {found_place['formatted_address']}")
-                
-                # 이름 업데이트 - 원래 카테고리 보존
-                original_name = schedule.get("name", "")
-                schedule["name"] = f"{original_name} - {found_place.get('name', '')}"
-                
-                # 주소 및 좌표 업데이트
-                schedule["location"] = found_place["formatted_address"]
-                schedule["latitude"] = found_place["latitude"]
-                schedule["longitude"] = found_place["longitude"]
-                continue
-            
             # 기존 위치 정보가 있으면 인근 검색 (고정 일정 기준)
             existing_location = None
             if "fixedSchedules" in enhanced_data and enhanced_data["fixedSchedules"]:
@@ -781,19 +823,34 @@ def enhance_location_data(schedule_data: Dict) -> Dict:
             
             # 여러 검색어로 시도하여 가장 적합한 결과 찾기
             found_place = None
+            
+            # 중복 검색 방지를 위한 집합
+            attempted_searches = set()
+            
             for query in search_queries:
+                # 검색 쿼리 생성 (인근 검색 또는 컨텍스트 기반 검색)
                 if existing_location:
                     # 인근 장소 검색
                     search_term = query
+                    if search_term in attempted_searches:
+                        continue
+                    
+                    attempted_searches.add(search_term)
                     print(f"인근 '{search_term}' 검색 중...")
                     place_info = places_tool.search_nearby_detailed(search_term, existing_location)
                 else:
-                    # 일반 지역 검색
-                    # 울산대학교가 고정 일정이면 울산 지역으로 검색
-                    if any("울산대학교" in fixed.get("name", "") for fixed in enhanced_data.get("fixedSchedules", [])):
-                        search_term = f"울산 {query}"
+                    # 일반 지역 검색 (컨텍스트 기반)
+                    if primary_region:
+                        # 지역 컨텍스트가 있는 경우
+                        search_term = f"{primary_region} {query}"
                     else:
-                        search_term = f"서울 강남 {query}"
+                        # 기본 지역 (서울) 사용
+                        search_term = f"서울 {query}"
+                    
+                    if search_term in attempted_searches:
+                        continue
+                    
+                    attempted_searches.add(search_term)
                     print(f"'{search_term}' 지역 검색 중...")
                     place_info = places_tool.search_place_detailed(search_term)
                 
@@ -1026,23 +1083,152 @@ async def extract_schedule(request: ScheduleRequest):
                 print(f"위치: {first_flexible['location']}")
                 test_encoding(first_flexible["location"])
         
-        # 4. 향상된 위치 정보 보강
+        # 4. LangChain으로 시간 및 우선순위 강화 (새로 추가)
+        print("\n시간 및 우선순위 강화 시작...")
+        try:
+            # LangChain 체인 생성
+            enhancement_chains = create_enhancement_chain()
+            time_chain = enhancement_chains["time_chain"]
+            priority_chain = enhancement_chains["priority_chain"]
+            
+            # 시간 추론 적용
+            # 현재 날짜/시간 정보
+            now = datetime.datetime.now()
+            current_date = now.strftime("%Y-%m-%d")
+            current_time = now.strftime("%H:%M:%S")
+            
+            # 이전 일정 정보 포맷팅
+            previous_schedules = "없음"
+            if "fixedSchedules" in schedule_data and schedule_data["fixedSchedules"]:
+                schedule_details = []
+                for s in schedule_data["fixedSchedules"]:
+                    schedule_details.append(
+                        f"일정명: {s.get('name', '')}, "
+                        f"시작: {s.get('startTime', '')}, "
+                        f"종료: {s.get('endTime', '')}"
+                    )
+                previous_schedules = "\n".join(schedule_details)
+            
+            # 시간 추론 실행
+            time_info = time_chain.invoke({
+                "input": request.voice_input, 
+                "current_date": current_date, 
+                "current_time": current_time,
+                "previous_schedules": previous_schedules
+            })
+            
+            print(f"시간 추론 결과: {json.dumps(time_info, ensure_ascii=False)[:200]}...")
+            
+            # 시간 정보 적용
+            flexible_schedules = schedule_data.get("flexibleSchedules", [])
+            updated_flexible = []
+            
+            # 시간 표현과 추론된 시간을 매핑
+            time_expr_map = {}
+            for expr, time_data in zip(
+                time_info.get("time_expressions", []), 
+                time_info.get("inferred_times", [])
+            ):
+                time_expr_map[expr.lower()] = time_data
+            
+            for schedule in flexible_schedules:
+                schedule_name = schedule.get("name", "").lower()
+                
+                # 일정명과 시간 표현 매칭
+                for expr, time_data in time_expr_map.items():
+                    if expr in schedule_name or schedule_name in expr or \
+                       expr in request.voice_input.lower() and schedule_name in request.voice_input.lower():
+                        if "start" in time_data and "end" in time_data:
+                            schedule["startTime"] = time_data["start"]
+                            schedule["endTime"] = time_data["end"]
+                            
+                            # 충분히 구체적인 시간이 있으면 FIXED로 변경
+                            if time_data.get("confidence", 0.5) > 0.7:
+                                schedule["type"] = "FIXED"
+                            break
+                
+                updated_flexible.append(schedule)
+            
+            # 시간 추론 반영한 일정 업데이트
+            schedule_data_with_time = schedule_data.copy()
+            schedule_data_with_time["flexibleSchedules"] = updated_flexible
+            
+            # 일정 정보 포맷팅 (우선순위 분석용)
+            schedule_info = []
+            for s in schedule_data_with_time.get("fixedSchedules", []):
+                schedule_info.append(
+                    f"ID: {s.get('id', '')}, 이름: {s.get('name', '')}, "
+                    f"유형: 고정, 시간: {s.get('startTime', '')} ~ {s.get('endTime', '')}"
+                )
+            
+            for s in schedule_data_with_time.get("flexibleSchedules", []):
+                time_info = ""
+                if "startTime" in s and "endTime" in s:
+                    time_info = f", 시간: {s.get('startTime', '')} ~ {s.get('endTime', '')}"
+                
+                schedule_info.append(
+                    f"ID: {s.get('id', '')}, 이름: {s.get('name', '')}, "
+                    f"유형: 유연{time_info}"
+                )
+            
+            formatted_schedules = "\n".join(schedule_info)
+            
+            # 우선순위 분석 실행
+            priority_info = priority_chain.invoke({
+                "input": request.voice_input,
+                "extracted_schedules": formatted_schedules
+            })
+            
+            print(f"우선순위 분석 결과: {json.dumps(priority_info, ensure_ascii=False)[:200]}...")
+            
+            # 우선순위 정보를 딕셔너리로 변환 (id -> priority)
+            priority_map = {}
+            for item in priority_info.get("schedule_priorities", []):
+                if "id" in item and "priority" in item:
+                    priority_map[item["id"]] = item["priority"]
+            
+            # 고정 일정 우선순위 업데이트
+            fixed_schedules = schedule_data_with_time.get("fixedSchedules", [])
+            for schedule in fixed_schedules:
+                if schedule.get("id") in priority_map:
+                    schedule["priority"] = priority_map[schedule.get("id")]
+            
+            # 유연 일정 우선순위 업데이트
+            for schedule in updated_flexible:
+                if schedule.get("id") in priority_map:
+                    schedule["priority"] = priority_map[schedule.get("id")]
+            
+            # 최종 강화된 일정 데이터
+            enhanced_schedule_data = schedule_data_with_time.copy()
+            enhanced_schedule_data["fixedSchedules"] = fixed_schedules
+            enhanced_schedule_data["flexibleSchedules"] = updated_flexible
+            
+            print("시간 및 우선순위 강화 완료")
+            
+        except Exception as e:
+            print(f"시간 및 우선순위 강화 중 오류: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            # 오류 발생 시 원본 데이터 사용
+            enhanced_schedule_data = schedule_data
+        
+        # 5. 향상된 위치 정보 보강
         print(f"\n위치 정보 보강 시작...")
         try:
-            enhanced_data = enhance_location_data(schedule_data)
+            final_enhanced_data = enhance_location_data(enhanced_schedule_data)
             
             # 보강된 데이터 인코딩 테스트
-            enhanced_json = json.dumps(enhanced_data, ensure_ascii=False)
+            enhanced_json = json.dumps(final_enhanced_data, ensure_ascii=False)
             print(f"보강된 데이터 직렬화 성공, 길이: {len(enhanced_json)}")
             print(f"보강된 데이터 JSON 샘플: {enhanced_json[:200]}...")
             
             # 한 번 더 직렬화/역직렬화로 인코딩 문제 방지
-            enhanced_data = json.loads(enhanced_json)
+            final_enhanced_data = json.loads(enhanced_json)
             print("보강된 데이터 역직렬화 성공")
             
             # 보강된 데이터 인코딩 테스트
-            if "fixedSchedules" in enhanced_data and enhanced_data["fixedSchedules"]:
-                first_fixed = enhanced_data["fixedSchedules"][0]
+            if "fixedSchedules" in final_enhanced_data and final_enhanced_data["fixedSchedules"]:
+                first_fixed = final_enhanced_data["fixedSchedules"][0]
                 print(f"\n보강된 첫 번째 고정 일정 인코딩 테스트:")
                 if "name" in first_fixed:
                     print(f"이름: {first_fixed['name']}")
@@ -1051,8 +1237,8 @@ async def extract_schedule(request: ScheduleRequest):
                     print(f"위치: {first_fixed['location']}")
                     test_encoding(first_fixed["location"])
             
-            if "flexibleSchedules" in enhanced_data and enhanced_data["flexibleSchedules"]:
-                first_flexible = enhanced_data["flexibleSchedules"][0]
+            if "flexibleSchedules" in final_enhanced_data and final_enhanced_data["flexibleSchedules"]:
+                first_flexible = final_enhanced_data["flexibleSchedules"][0]
                 print(f"\n보강된 첫 번째 유연 일정 인코딩 테스트:")
                 if "name" in first_flexible:
                     print(f"이름: {first_flexible['name']}")
@@ -1067,14 +1253,14 @@ async def extract_schedule(request: ScheduleRequest):
             import traceback
             print(traceback.format_exc())
             # 오류 발생 시 원본 데이터 사용
-            enhanced_data = schedule_data
+            final_enhanced_data = enhanced_schedule_data
         
-        # 5. Pydantic 모델로 변환하여 응답 검증
+        # 6. Pydantic 모델로 변환하여 응답 검증
         try:
             print(f"\nPydantic 모델 변환 시작...")
             
             # 모델 변환 전 인코딩 확인을 위해 두 번 직렬화-역직렬화
-            final_json = json.dumps(enhanced_data, ensure_ascii=False)
+            final_json = json.dumps(final_enhanced_data, ensure_ascii=False)
             final_data = json.loads(final_json)
             
             response = ExtractScheduleResponse(**final_data)
@@ -1093,8 +1279,7 @@ async def extract_schedule(request: ScheduleRequest):
                 print(f"응답 유연 일정 첫 항목 위치: {response.flexibleSchedules[0].location}")
                 test_encoding(response.flexibleSchedules[0].location)
             
-            # 커스텀 JSONResponse로 반환하는 대신 Pydantic 모델 직접 반환
-            # (FastAPI가 알아서 적절히 직렬화해주므로 charset 설정 불필요)
+            # Pydantic 모델 직접 반환
             return response
             
         except Exception as e:
@@ -1106,7 +1291,7 @@ async def extract_schedule(request: ScheduleRequest):
             from fastapi.responses import JSONResponse
             
             # 직접 직렬화
-            final_json = json.dumps(enhanced_data, ensure_ascii=False)
+            final_json = json.dumps(final_enhanced_data, ensure_ascii=False)
             print(f"직접 직렬화 성공, 길이: {len(final_json)}")
             
             # JSON으로 다시 파싱
