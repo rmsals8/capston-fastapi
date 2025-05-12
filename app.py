@@ -49,7 +49,164 @@ app.add_middleware(
 )
 
 # ----- 모델 정의 (일정 추출 API) -----
-
+class GoogleMapsDirectionsTool:
+    """Google Maps Directions API를 사용하여 실제 경로 정보를 검색하는 도구"""
+    
+    def __init__(self, api_key=None):
+        self.api_key = api_key or GOOGLE_MAPS_API_KEY
+        if not self.api_key:
+            raise ValueError("Google Maps API 키가 필요합니다.")
+        # 검색 결과 캐싱을 위한 딕셔너리
+        self.directions_cache = {}
+        # 로깅 설정
+        self.logger = logging.getLogger('google_directions_tool')
+        self.logger.setLevel(logging.INFO)
+    
+    @lru_cache(maxsize=100)
+    def get_directions_cached(self, origin_lat, origin_lng, dest_lat, dest_lng, departure_time=None):
+        """캐싱을 지원하는 경로 정보 검색 함수"""
+        cache_key = f"{origin_lat}_{origin_lng}_{dest_lat}_{dest_lng}_{departure_time}"
+        
+        # 캐시에 있으면 반환
+        if cache_key in self.directions_cache:
+            self.logger.info(f"캐시에서 경로 결과 반환: '{cache_key}'")
+            return self.directions_cache[cache_key]
+        
+        # 없으면 검색 실행
+        result = self.get_directions(origin_lat, origin_lng, dest_lat, dest_lng, departure_time)
+        
+        # 결과가 있으면 캐시에 저장
+        if result:
+            self.directions_cache[cache_key] = result
+            self.logger.info(f"경로 검색 결과 캐싱: '{cache_key}'")
+        
+        return result
+    
+    def get_directions(self, origin_lat, origin_lng, dest_lat, dest_lng, departure_time=None):
+        """Google Directions API를 사용하여 경로 정보 검색"""
+        try:
+            # API URL 구성
+            base_url = "https://maps.googleapis.com/maps/api/directions/json"
+            params = {
+                "origin": f"{origin_lat},{origin_lng}",
+                "destination": f"{dest_lat},{dest_lng}",
+                "key": self.api_key,
+                "mode": "driving",  # 운전 모드
+                "units": "metric",  # 미터 단위 사용
+                "language": "ko"    # 한국어 응답
+            }
+            
+            # 출발 시간 추가 (실시간 교통 정보 적용을 위해)
+            if departure_time:
+                if isinstance(departure_time, str):
+                    # ISO 형식 문자열을 datetime으로 변환
+                    dt = parse_datetime(departure_time)
+                    if dt:
+                        # 유닉스 타임스탬프로 변환 (초 단위)
+                        params["departure_time"] = int(dt.timestamp())
+                    else:
+                        # 문자열 변환 실패 시 'now' 사용
+                        params["departure_time"] = "now"
+                elif departure_time.lower() == "now":
+                    params["departure_time"] = "now"
+                else:
+                    # 기타 경우 현재 시간 타임스탬프 사용
+                    params["departure_time"] = int(time.time())
+            else:
+                # 출발 시간이 지정되지 않으면 현재 시간 사용
+                params["departure_time"] = "now"
+            
+            self.logger.info(f"Directions API 요청: {params}")
+            
+            # API 요청
+            response = requests.get(base_url, params=params, timeout=120)
+            
+            # 응답 확인
+            if response.status_code != 200:
+                self.logger.warning(f"Google Directions API 호출 실패: {response.status_code}")
+                return None
+            
+            # JSON 응답 파싱
+            data = response.json()
+            
+            if data["status"] != "OK":
+                self.logger.warning(f"경로를 찾을 수 없음: {data['status']}")
+                return None
+            
+            # 첫 번째 경로 선택
+            route = data["routes"][0]
+            leg = route["legs"][0]  # 첫 번째 구간
+            
+            # 경로 정보 추출
+            distance_meters = leg["distance"]["value"]  # 미터 단위
+            distance_km = distance_meters / 1000  # 킬로미터로 변환
+            
+            duration_seconds = leg["duration"]["value"]  # 초 단위 (교통 상황 미고려)
+            
+            # 교통 상황 고려 시간 (출발 시간이 지정된 경우)
+            if "duration_in_traffic" in leg:
+                duration_in_traffic_seconds = leg["duration_in_traffic"]["value"]
+                traffic_rate = duration_in_traffic_seconds / duration_seconds
+            else:
+                duration_in_traffic_seconds = duration_seconds
+                traffic_rate = 1.0
+            
+            # 경로 단계 정보
+            steps = []
+            for step in leg["steps"]:
+                steps.append({
+                    "distance": step["distance"]["value"] / 1000,  # km
+                    "duration": step["duration"]["value"],  # 초
+                    "html_instructions": step.get("html_instructions", ""),
+                    "travel_mode": step.get("travel_mode", "DRIVING"),
+                    "start_location": step["start_location"],
+                    "end_location": step["end_location"]
+                })
+            
+            # 결과 구성
+            result = {
+                "distance": round(distance_km, 3),  # 3자리까지 반올림
+                "duration": duration_seconds,
+                "duration_in_traffic": duration_in_traffic_seconds,
+                "traffic_rate": round(traffic_rate, 2),  # 2자리까지 반올림
+                "steps": steps,
+                "overview_polyline": route.get("overview_polyline", {}).get("points", ""),
+                "start_address": leg.get("start_address", ""),
+                "end_address": leg.get("end_address", "")
+            }
+            
+            self.logger.info(f"경로 검색 성공: 거리 {result['distance']}km, 시간 {result['duration']}초, 교통 고려 시간 {result['duration_in_traffic']}초")
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"경로 검색 중 오류 발생: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return None
+    
+    def get_traffic_data(self, origin_lat, origin_lng, dest_lat, dest_lng, departure_time=None):
+        """교통 데이터 검색 (간소화된 결과 반환)"""
+        directions = self.get_directions_cached(origin_lat, origin_lng, dest_lat, dest_lng, departure_time)
+        
+        if not directions:
+            # 실패 시 기본 값 반환
+            return {
+                "distance": calculate_distance(origin_lat, origin_lng, dest_lat, dest_lng),  # 기존 직선 거리 계산 사용
+                "estimated_time": calculate_travel_time(calculate_distance(origin_lat, origin_lng, dest_lat, dest_lng)),  # 기존 계산 사용
+                "traffic_rate": 1.0,
+                "has_traffic_data": False
+            }
+        
+        return {
+            "distance": directions["distance"],
+            "estimated_time": directions["duration"],
+            "estimated_time_in_traffic": directions["duration_in_traffic"],
+            "traffic_rate": directions["traffic_rate"],
+            "has_traffic_data": True,
+            "steps": directions["steps"],
+            "overview_polyline": directions["overview_polyline"]
+        }
 # 입력 모델 정의
 class ScheduleRequest(BaseModel):
     voice_input: str
@@ -356,7 +513,7 @@ class GooglePlacesTool:
             
             self.logger.info(f"Places API 요청: '{query}', 유형: {place_type or '없음'}")
             
-            response = requests.get(url, timeout=5)
+            response = requests.get(url, timeout=120)
             if response.status_code != 200:
                 self.logger.warning(f"Google Places API 호출 실패: {response.status_code}")
                 return None
@@ -440,7 +597,7 @@ class GooglePlacesTool:
             
             self.logger.info(f"Nearby API 요청: '{query}', 위치: {location}, 반경: {radius}m, 유형: {place_type or '없음'}")
             
-            response = requests.get(url, timeout=5)
+            response = requests.get(url, timeout=120)
             if response.status_code != 200:
                 self.logger.warning(f"Nearby Places API 호출 실패: {response.status_code}")
                 return None
@@ -485,7 +642,7 @@ class GooglePlacesTool:
             # Place Details API 호출
             url = f"https://maps.googleapis.com/maps/api/place/details/json?place_id={place_id}&fields=name,formatted_address,geometry,address_component,types&language=ko&key={self.api_key}"
             
-            response = requests.get(url, timeout=5)
+            response = requests.get(url, timeout=120)
             if response.status_code != 200:
                 self.logger.warning(f"Place Details API 호출 실패: {response.status_code}")
                 return None
@@ -1700,6 +1857,48 @@ def get_alternative_types(place_type: str) -> List[str]:
         return alt_types_map[place_type]
     else:
         return alt_types_map["default"]
+    
+def calculate_route_with_traffic(origin_lat, origin_lng, dest_lat, dest_lng, departure_time=None):
+    """교통 상황을 고려한, 실제 도로망 기반 경로 계산"""
+    try:
+        # Google Maps Directions 도구 인스턴스 생성
+        directions_tool = GoogleMapsDirectionsTool()
+        
+        # 교통 데이터 조회
+        traffic_data = directions_tool.get_traffic_data(origin_lat, origin_lng, dest_lat, dest_lng, departure_time)
+        
+        if traffic_data["has_traffic_data"]:
+            # 교통 데이터가 있으면 해당 데이터 사용
+            return {
+                "distance": traffic_data["distance"],
+                "estimatedTime": traffic_data["estimated_time_in_traffic"],
+                "trafficRate": traffic_data["traffic_rate"],
+                "recommendedRoute": traffic_data["steps"],
+                "realTimeTraffic": True,
+                "polyline": traffic_data["overview_polyline"]
+            }
+        else:
+            # 교통 데이터가 없으면 기본 계산 사용
+            return {
+                "distance": traffic_data["distance"],
+                "estimatedTime": traffic_data["estimated_time"],
+                "trafficRate": 1.0,
+                "recommendedRoute": None,
+                "realTimeTraffic": False,
+                "polyline": None
+            }
+    except Exception as e:
+        print(f"경로 계산 중 오류 발생: {str(e)}")
+        # 오류 발생 시 기본 직선 거리 계산 사용
+        distance = calculate_distance(origin_lat, origin_lng, dest_lat, dest_lng)
+        return {
+            "distance": distance,
+            "estimatedTime": calculate_travel_time(distance),
+            "trafficRate": 1.0,
+            "recommendedRoute": None,
+            "realTimeTraffic": False,
+            "polyline": None
+        }
 # ----- 엔드포인트 정의 -----
 
 @app.get("/")
@@ -2276,27 +2475,30 @@ async def optimize_schedules(request: OptimizeScheduleRequest):
             from_schedule = optimized_schedules[i]
             to_schedule = optimized_schedules[i+1]
             
-            distance = calculate_distance(
-                from_schedule["latitude"], from_schedule["longitude"],
-                to_schedule["latitude"], to_schedule["longitude"]
-            )
+            # 교통 상황을 고려한 경로 계산
+            # 출발 시간을 현재 일정의 종료 시간으로 설정
+            departure_time = from_schedule["end_time"].isoformat() if hasattr(from_schedule["end_time"], "isoformat") else from_schedule["end_time"]
             
-            estimated_time = calculate_travel_time(distance)
+            route_data = calculate_route_with_traffic(
+                from_schedule["latitude"], from_schedule["longitude"],
+                to_schedule["latitude"], to_schedule["longitude"],
+                departure_time
+            )
             
             # 경로 정보 추가
             route_segments.append({
                 "fromLocation": from_schedule["name"],
                 "toLocation": to_schedule["name"],
-                "distance": round(distance, 3),
-                "estimatedTime": estimated_time,
-                "trafficRate": 1.0,
-                "recommendedRoute": None,
-                "realTimeTraffic": None
+                "distance": route_data["distance"],
+                "estimatedTime": route_data["estimatedTime"],
+                "trafficRate": route_data["trafficRate"],
+                "recommendedRoute": route_data["recommendedRoute"],
+                "realTimeTraffic": route_data["realTimeTraffic"]
             })
             
             # 총 거리와 시간 누적
-            total_distance += distance
-            total_time += estimated_time
+            total_distance += route_data["distance"]
+            total_time += route_data["estimatedTime"]
         
         # 경로 정보 인코딩 테스트
         if route_segments:
@@ -2513,7 +2715,6 @@ async def optimize_schedules(request: OptimizeScheduleRequest):
         import traceback
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"일정 최적화 중 오류 발생: {str(e)}")
-
 # 서버 시작 코드
 if __name__ == "__main__":
     import uvicorn
