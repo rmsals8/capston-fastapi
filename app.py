@@ -141,7 +141,79 @@ class PlaceResult(BaseModel):
     source: str  # foursquare, kakao, google
     rating: Optional[float] = None
 
-# ----- 3중 위치 검색 서비스 -----
+# ----- 주소 완전성 검증 및 재검색 시스템 -----
+class AddressQualityChecker:
+    """주소 완전성 검증 및 재검색 시스템"""
+    
+    @staticmethod
+    def is_complete_address(address: str) -> bool:
+        """주소 완전성 검증"""
+        if not address or address.strip() == "":
+            return False
+        
+        # 기본 검증
+        address_lower = address.lower()
+        
+        # 1. 너무 짧은 주소 (단어 2개 이하)
+        words = [word for word in address.split() if len(word) > 1]
+        if len(words) <= 2:
+            logger.info(f"❌ 주소 너무 짧음: {address} ({len(words)}개 단어)")
+            return False
+        
+        # 2. 모호한 표현 체크
+        vague_terms = ["근처", "인근", "주변", "근방", "부근", "일대", "동네"]
+        if any(term in address for term in vague_terms):
+            logger.info(f"❌ 모호한 주소 표현: {address}")
+            return False
+        
+        # 3. 한국 주소 필수 요소 체크
+        korean_regions = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"]
+        has_region = any(region in address for region in korean_regions)
+        
+        # 4. 상세 주소 요소 체크 (구/시/군 + 동/읍/면)
+        detail_keywords = ["구", "시", "군", "동", "읍", "면", "로", "길", "가"]
+        has_detail = any(keyword in address for keyword in detail_keywords)
+        
+        # 5. 건물명이나 번지수 체크
+        import re
+        has_number = bool(re.search(r'\d+', address))
+        
+        quality_score = has_region + has_detail + has_number
+        is_complete = quality_score >= 2  # 3점 만점에 2점 이상
+        
+        logger.info(f"📊 주소 품질 점수: {quality_score}/3 - {address}")
+        logger.info(f"   지역포함: {has_region}, 상세요소: {has_detail}, 번지포함: {has_number}")
+        logger.info(f"   완전성: {'✅ 완전' if is_complete else '❌ 불완전'}")
+        
+        return is_complete
+    
+    @staticmethod
+    def get_category_keywords(place_name: str) -> List[str]:
+        """장소명에서 카테고리 키워드 추출"""
+        name_lower = place_name.lower()
+        keywords = []
+        
+        # 카테고리별 키워드 매핑
+        category_map = {
+            "카페": ["카페", "커피", "coffee", "dessert", "디저트", "베이커리"],
+            "식당": ["식당", "맛집", "음식점", "레스토랑", "restaurant", "food"],
+            "회의": ["회의실", "오피스", "사무실", "컨퍼런스", "meeting"],
+            "회식": ["술집", "bar", "pub", "호프", "이자카야", "restaurant"],
+            "쇼핑": ["쇼핑몰", "백화점", "마트", "상점", "mall"],
+            "숙박": ["호텔", "모텔", "펜션", "게스트하우스", "리조트"]
+        }
+        
+        for category, words in category_map.items():
+            if any(word in name_lower for word in words):
+                keywords.extend(words)
+                logger.info(f"🏷️ 카테고리 '{category}' 감지: {words}")
+                break
+        
+        # 기본 키워드가 없으면 장소명 그대로 사용
+        if not keywords:
+            keywords = [place_name]
+        
+        return list(set(keywords))  # 중복 제거
 class TripleLocationSearchService:
     """Foursquare + Kakao + Google 3중 위치 검색 서비스"""
     
@@ -177,7 +249,7 @@ JSON 형식으로 응답:
 
         try:
             response = openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4-turbo",
                 messages=[
                     {"role": "system", "content": "당신은 한국 지역 정보 전문가입니다. 텍스트에서 정확한 지역과 장소를 분석하여 JSON으로 응답하세요."},
                     {"role": "user", "content": prompt}
@@ -209,7 +281,142 @@ JSON 형식으로 응답:
         """1순위: Foursquare API 검색"""
         if not FOURSQUARE_API_KEY:
             logger.warning("❌ Foursquare API 키가 없습니다")
+    @staticmethod
+    async def enhanced_search_with_quality_check(place_text: str) -> Optional[PlaceResult]:
+        """주소 완전성 검증과 재검색을 포함한 향상된 검색"""
+        logger.info(f"🔍 향상된 품질 검증 검색 시작: {place_text}")
+        
+        # 1단계: 기본 3중 API 검색
+        result = await TripleLocationSearchService.search_triple_api(place_text)
+        
+        # 2단계: 주소 완전성 검증
+        if result and AddressQualityChecker.is_complete_address(result.address):
+            logger.info(f"✅ 1차 검색 성공 (완전한 주소): {result.address}")
+            return result
+        
+        logger.warning(f"⚠️ 1차 검색 결과 불완전: {result.address if result else 'None'}")
+        
+        # 3단계: 재검색 전략
+        analysis = await TripleLocationSearchService.analyze_location_with_gpt(place_text)
+        category_keywords = AddressQualityChecker.get_category_keywords(place_text)
+        
+        logger.info(f"🔄 재검색 시작 - 카테고리 키워드: {category_keywords}")
+        
+        # 4단계: 확장 검색 (반경 확대 + 카테고리 키워드)
+        for radius in [1000, 2000, 5000, 10000]:  # 1km → 10km까지 확대
+            logger.info(f"🔍 확장 검색 (반경 {radius}m)")
+            
+            for keyword in category_keywords:
+                enhanced_query = f"{analysis.region} {analysis.district} {keyword}"
+                
+                # Kakao 확장 검색
+                kakao_result = await TripleLocationSearchService.search_kakao_enhanced(
+                    analysis, enhanced_query, radius
+                )
+                
+                if kakao_result and AddressQualityChecker.is_complete_address(kakao_result.address):
+                    logger.info(f"✅ Kakao 확장 검색 성공: {kakao_result.address}")
+                    return kakao_result
+                
+                # Google 확장 검색
+                google_result = await TripleLocationSearchService.search_google_enhanced(
+                    analysis, enhanced_query
+                )
+                
+                if google_result and AddressQualityChecker.is_complete_address(google_result.address):
+                    logger.info(f"✅ Google 확장 검색 성공: {google_result.address}")
+                    return google_result
+        
+        # 5단계: 모든 검색 실패시 기본값 반환 (주소가 완전하지 않더라도)
+        if result:
+            logger.warning(f"⚠️ 확장 검색 실패, 1차 결과 사용: {result.address}")
+            return result
+        
+        logger.error(f"❌ 모든 검색 실패: {place_text}")
+        return None
+
+    @staticmethod
+    async def search_kakao_enhanced(analysis: LocationAnalysis, query: str, radius: int) -> Optional[PlaceResult]:
+        """Kakao API 확장 검색"""
+        if not KAKAO_REST_API_KEY:
             return None
+            
+        try:
+            url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+            headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
+            
+            params = {
+                "query": query,
+                "size": 10,  # 더 많은 결과 가져오기
+                "radius": radius
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        if data.get("documents"):
+                            # 가장 완전한 주소를 가진 결과 선택
+                            for place in data["documents"]:
+                                address = place.get("road_address_name") or place.get("address_name", "")
+                                
+                                if AddressQualityChecker.is_complete_address(address):
+                                    return PlaceResult(
+                                        name=place.get("place_name", analysis.place_name),
+                                        address=address,
+                                        latitude=float(place.get("y", 0)),
+                                        longitude=float(place.get("x", 0)),
+                                        source="kakao_enhanced"
+                                    )
+                                    
+        except Exception as e:
+            logger.error(f"❌ Kakao 확장 검색 오류: {e}")
+        
+        return None
+
+    @staticmethod
+    async def search_google_enhanced(analysis: LocationAnalysis, query: str) -> Optional[PlaceResult]:
+        """Google Places API 확장 검색"""
+        if not GOOGLE_MAPS_API_KEY:
+            return None
+            
+        try:
+            url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+            
+            params = {
+                'input': query,
+                'inputtype': 'textquery',
+                'fields': 'name,formatted_address,geometry,rating',
+                'language': 'ko',
+                'region': 'kr',
+                'key': GOOGLE_MAPS_API_KEY
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        if data.get('status') == 'OK' and data.get('candidates'):
+                            for place in data['candidates']:
+                                address = place.get('formatted_address', '')
+                                
+                                if AddressQualityChecker.is_complete_address(address):
+                                    location = place['geometry']['location']
+                                    return PlaceResult(
+                                        name=place.get('name', analysis.place_name),
+                                        address=address,
+                                        latitude=location['lat'],
+                                        longitude=location['lng'],
+                                        source="google_enhanced",
+                                        rating=place.get('rating')
+                                    )
+                                    
+        except Exception as e:
+            logger.error(f"❌ Google 확장 검색 오류: {e}")
+        
+        return None
             
         logger.info(f"🔍 1순위 Foursquare 검색: {analysis.place_name}")
         
@@ -473,28 +680,34 @@ async def enhance_locations_with_triple_api(schedule_data: Dict) -> Dict:
         return schedule_data
 
 async def enhance_single_schedule_triple(schedule: Dict):
-    """단일 일정의 3중 API 위치 검색"""
+    """단일 일정의 3중 API + 품질 검증 위치 검색"""
     place_name = schedule.get("name", "")
     if not place_name:
         return schedule
     
-    logger.info(f"🎯 3중 API 검색: {place_name}")
+    logger.info(f"🎯 품질 검증 위치 검색: {place_name}")
     
     try:
-        result = await TripleLocationSearchService.search_triple_api(place_name)
+        # 향상된 품질 검증 검색 사용
+        result = await TripleLocationSearchService.enhanced_search_with_quality_check(place_name)
         
-        if result:
+        if result and result.address and result.address.strip():
+            # 빈 주소가 아닌 경우만 업데이트
             schedule["location"] = result.address
             schedule["latitude"] = result.latitude
             schedule["longitude"] = result.longitude
             
-            logger.info(f"✅ 위치 업데이트 완료: {place_name}")
+            logger.info(f"✅ 품질 검증 위치 업데이트 완료: {place_name}")
             logger.info(f"   🏢 이름: {result.name}")
             logger.info(f"   📍 주소: {result.address}")
             logger.info(f"   🌍 좌표: {result.latitude}, {result.longitude}")
             logger.info(f"   🔗 출처: {result.source}")
+            
+            # 주소 완전성 재확인 및 로깅
+            is_complete = AddressQualityChecker.is_complete_address(result.address)
+            logger.info(f"   📊 최종 주소 품질: {'✅ 완전' if is_complete else '⚠️ 불완전'}")
         else:
-            logger.warning(f"⚠️ 위치 검색 실패: {place_name}")
+            logger.warning(f"⚠️ 위치 검색 실패 또는 빈 주소: {place_name}")
             
     except Exception as e:
         logger.error(f"❌ 위치 검색 오류: {place_name}, {e}")
