@@ -141,6 +141,36 @@ class PlaceResult(BaseModel):
     source: str  # foursquare, kakao, google
     rating: Optional[float] = None
 
+
+
+def normalize_priorities(schedules_data: Dict[str, Any]) -> Dict[str, Any]:
+    """우선순위를 정수로 정규화"""
+    logger.info("🔢 우선순위 정수 변환 시작")
+    
+    all_schedules = []
+    all_schedules.extend(schedules_data.get("fixedSchedules", []))
+    all_schedules.extend(schedules_data.get("flexibleSchedules", []))
+    
+    # 우선순위로 정렬
+    all_schedules.sort(key=lambda s: s.get("priority", 999))
+    
+    # 1부터 시작하는 정수로 재할당
+    for i, schedule in enumerate(all_schedules):
+        old_priority = schedule.get("priority", "없음")
+        new_priority = i + 1
+        schedule["priority"] = new_priority
+        logger.info(f"우선순위 정규화: '{schedule.get('name', '')}' {old_priority} → {new_priority}")
+    
+    # 다시 분류
+    fixed_schedules = [s for s in all_schedules if s.get("type") == "FIXED" and "startTime" in s]
+    flexible_schedules = [s for s in all_schedules if s.get("type") != "FIXED" or "startTime" not in s]
+    
+    logger.info(f"✅ 우선순위 정규화 완료: 고정 {len(fixed_schedules)}개, 유연 {len(flexible_schedules)}개")
+    
+    return {
+        "fixedSchedules": fixed_schedules,
+        "flexibleSchedules": flexible_schedules
+    }
 # ----- 주소 완전성 검증 및 재검색 시스템 -----
 class AddressQualityChecker:
     """주소 완전성 검증 및 재검색 시스템"""
@@ -218,40 +248,47 @@ class TripleLocationSearchService:
     """Foursquare + Kakao + Google 3중 위치 검색 서비스"""
     
     @staticmethod
-    async def analyze_location_with_gpt(text: str) -> LocationAnalysis:
-        """GPT로 정확한 지역과 장소 분석"""
+    async def analyze_location_with_gpt(text: str, reference_location: Optional[str] = None) -> LocationAnalysis:
+        """GPT로 정확한 지역과 장소 분석 - 참조 위치 추가"""
         
         # set을 list로 변환하여 JSON 직렬화 가능하게 만들기
         korea_regions_list = {region: list(districts) for region, districts in KOREA_REGIONS.items()}
         regions_text = json.dumps(korea_regions_list, ensure_ascii=False, indent=2)
         
+        # 참조 위치 정보 추가
+        reference_context = ""
+        if reference_location:
+            reference_context = f"\n참조 위치 (이전 일정): {reference_location}"
+            reference_context += "\n'근처', '주변' 같은 표현이 있으면 이 참조 위치 근처에서 검색하세요."
+        
         prompt = f"""
 다음 텍스트에서 한국의 정확한 지역 정보와 장소를 분석해주세요.
 
-텍스트: "{text}"
+텍스트: "{text}"{reference_context}
 
 한국 지역 정보:
 {regions_text}
 
+**중요**: 
+1. "근처", "주변" 같은 표현이 있으면 참조 위치와 같은 지역으로 설정하세요.
+2. 모호한 표현("카페", "식당")도 참조 위치 근처에서 검색하도록 지역을 설정하세요.
+3. 구체적인 장소명(예: 울산대학교, 문수월드컵경기장)은 정확한 위치를 우선하세요.
+
 JSON 형식으로 응답:
 {{
-  "place_name": "추출된 장소명 (예: 제주공항, 성산일출봉, 흑돼지 맛집)",
-  "region": "시/도 (예: 제주특별자치도, 서울특별시)",
-  "district": "시/군/구 (예: 제주시, 서귀포시, 강남구)",
-  "category": "장소 카테고리 (예: 공항, 관광지, 식당, 카페)",
+  "place_name": "추출된 장소명",
+  "region": "시/도 (참조 위치 고려)",
+  "district": "시/군/구 (참조 위치 고려)",
+  "category": "장소 카테고리",
   "search_keywords": ["검색에 사용할 키워드들", "지역명+장소명", "카테고리명"]
 }}
-
-예시:
-"제주공항" → {{"place_name": "제주공항", "region": "제주특별자치도", "district": "제주시", "category": "공항", "search_keywords": ["제주공항", "제주국제공항", "CJU"]}}
-"성산일출봉 근처" → {{"place_name": "성산일출봉", "region": "제주특별자치도", "district": "서귀포시", "category": "관광지", "search_keywords": ["성산일출봉", "서귀포 성산일출봉", "일출봉"]}}
 """
 
         try:
             response = openai_client.chat.completions.create(
                 model="gpt-4-turbo",
                 messages=[
-                    {"role": "system", "content": "당신은 한국 지역 정보 전문가입니다. 텍스트에서 정확한 지역과 장소를 분석하여 JSON으로 응답하세요."},
+                    {"role": "system", "content": "당신은 한국 지역 정보 전문가입니다. 참조 위치를 고려하여 '근처', '주변' 표현을 정확하게 해석하세요."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1,
@@ -267,6 +304,19 @@ JSON 형식으로 응답:
             
         except Exception as e:
             logger.error(f"❌ GPT 지역 분석 실패: {e}")
+            # 참조 위치가 있으면 같은 지역으로 기본값 설정
+            if reference_location:
+                # 참조 위치에서 지역 추출 시도
+                for region in ["울산", "서울", "부산", "대구", "인천", "광주", "대전"]:
+                    if region in reference_location:
+                        return LocationAnalysis(
+                            place_name=text,
+                            region=f"{region}광역시" if region != "서울" else "서울특별시",
+                            district="중구",  # 기본값
+                            category="장소",
+                            search_keywords=[f"{region} {text}", text]
+                        )
+            
             # 기본값 반환
             return LocationAnalysis(
                 place_name=text,
@@ -278,9 +328,351 @@ JSON 형식으로 응답:
 
     @staticmethod
     async def search_foursquare(analysis: LocationAnalysis) -> Optional[PlaceResult]:
-        """1순위: Foursquare API 검색"""
+        """1순위: Foursquare API 검색 - 카테고리 필터링 강화"""
         if not FOURSQUARE_API_KEY:
             logger.warning("❌ Foursquare API 키가 없습니다")
+            return None
+            
+        logger.info(f"🔍 1순위 Foursquare 검색: {analysis.place_name}")
+        
+        try:
+            # 지역 좌표 (기존과 동일)
+            region_coords = {
+                # 특별시·광역시
+                "서울특별시": {"lat": 37.5665, "lng": 126.9780},
+                "부산광역시": {"lat": 35.1796, "lng": 129.0756},
+                "대구광역시": {"lat": 35.8714, "lng": 128.6014},
+                "인천광역시": {"lat": 37.4563, "lng": 126.7052},
+                "광주광역시": {"lat": 35.1595, "lng": 126.8526},
+                "대전광역시": {"lat": 36.3504, "lng": 127.3845},
+                "울산광역시": {"lat": 35.5384, "lng": 129.3114},
+                
+                # 특별자치시·특별자치도
+                "세종특별자치시": {"lat": 36.4800, "lng": 127.2890},
+                "제주특별자치도": {"lat": 33.4996, "lng": 126.5312},
+                
+                # 경기도 및 하위 시·군
+                "경기도": {"lat": 37.4138, "lng": 127.5183},
+                "가평군": {"lat": 37.8313, "lng": 127.5109},
+                "고양시": {"lat": 37.6584, "lng": 126.8320},
+                "과천시": {"lat": 37.4292, "lng": 126.9876},
+                "광명시": {"lat": 37.4784, "lng": 126.8664},
+                "광주시": {"lat": 37.4297, "lng": 127.2550},
+                "구리시": {"lat": 37.5943, "lng": 127.1296},
+                "군포시": {"lat": 37.3614, "lng": 126.9350},
+                "김포시": {"lat": 37.6150, "lng": 126.7158},
+                "남양주시": {"lat": 37.6369, "lng": 127.2165},
+                "동두천시": {"lat": 37.9036, "lng": 127.0606},
+                "부천시": {"lat": 37.5036, "lng": 126.7660},
+                "성남시": {"lat": 37.4201, "lng": 127.1262},
+                "수원시": {"lat": 37.2636, "lng": 127.0286},
+                "시흥시": {"lat": 37.3803, "lng": 126.8030},
+                "안산시": {"lat": 37.3236, "lng": 126.8219},
+                "안성시": {"lat": 37.0078, "lng": 127.2797},
+                "안양시": {"lat": 37.3943, "lng": 126.9568},
+                "양주시": {"lat": 37.7853, "lng": 127.0456},
+                "양평군": {"lat": 37.4916, "lng": 127.4874},
+                "여주시": {"lat": 37.2982, "lng": 127.6376},
+                "연천군": {"lat": 38.0960, "lng": 127.0751},
+                "오산시": {"lat": 37.1499, "lng": 127.0776},
+                "용인시": {"lat": 37.2411, "lng": 127.1776},
+                "의왕시": {"lat": 37.3448, "lng": 126.9687},
+                "의정부시": {"lat": 37.7381, "lng": 127.0339},
+                "이천시": {"lat": 37.2724, "lng": 127.4349},
+                "파주시": {"lat": 37.7598, "lng": 126.7800},
+                "평택시": {"lat": 36.9921, "lng": 127.1127},
+                "포천시": {"lat": 37.8950, "lng": 127.2003},
+                "하남시": {"lat": 37.5394, "lng": 127.2147},
+                "화성시": {"lat": 37.1996, "lng": 126.8310},
+                
+                # 강원특별자치도 및 하위 시·군
+                "강원특별자치도": {"lat": 37.8228, "lng": 128.1555},
+                "강릉시": {"lat": 37.7519, "lng": 128.8761},
+                "고성군": {"lat": 38.3806, "lng": 128.4678},
+                "동해시": {"lat": 37.5244, "lng": 129.1144},
+                "삼척시": {"lat": 37.4501, "lng": 129.1649},
+                "속초시": {"lat": 38.2070, "lng": 128.5918},
+                "양구군": {"lat": 38.1065, "lng": 127.9897},
+                "양양군": {"lat": 38.0759, "lng": 128.6190},
+                "영월군": {"lat": 37.1839, "lng": 128.4617},
+                "원주시": {"lat": 37.3422, "lng": 127.9202},
+                "인제군": {"lat": 38.0695, "lng": 128.1707},
+                "정선군": {"lat": 37.3801, "lng": 128.6607},
+                "철원군": {"lat": 38.1465, "lng": 127.3134},
+                "춘천시": {"lat": 37.8813, "lng": 127.7298},
+                "태백시": {"lat": 37.1641, "lng": 128.9856},
+                "평창군": {"lat": 37.3708, "lng": 128.3897},
+                "홍천군": {"lat": 37.6971, "lng": 127.8888},
+                "화천군": {"lat": 38.1063, "lng": 127.7082},
+                "횡성군": {"lat": 37.4916, "lng": 127.9856},
+                
+                # 충청북도 및 하위 시·군
+                "충청북도": {"lat": 36.4919, "lng": 127.7417},
+                "괴산군": {"lat": 36.8154, "lng": 127.7874},
+                "단양군": {"lat": 36.9845, "lng": 128.3659},
+                "보은군": {"lat": 36.4894, "lng": 127.7293},
+                "영동군": {"lat": 36.1750, "lng": 127.7764},
+                "옥천군": {"lat": 36.3061, "lng": 127.5721},
+                "음성군": {"lat": 36.9433, "lng": 127.6864},
+                "제천시": {"lat": 37.1326, "lng": 128.1909},
+                "증평군": {"lat": 36.7848, "lng": 127.5814},
+                "진천군": {"lat": 36.8565, "lng": 127.4335},
+                "청주시": {"lat": 36.4919, "lng": 127.7417},
+                "충주시": {"lat": 36.9910, "lng": 127.9259},
+                
+                # 충청남도 및 하위 시·군
+                "충청남도": {"lat": 36.5184, "lng": 126.8000},
+                "계룡시": {"lat": 36.2742, "lng": 127.2489},
+                "공주시": {"lat": 36.4464, "lng": 127.1248},
+                "금산군": {"lat": 36.1088, "lng": 127.4881},
+                "논산시": {"lat": 36.1872, "lng": 127.0985},
+                "당진시": {"lat": 36.8934, "lng": 126.6292},
+                "보령시": {"lat": 36.3334, "lng": 126.6127},
+                "부여군": {"lat": 36.2756, "lng": 126.9098},
+                "서산시": {"lat": 36.7848, "lng": 126.4503},
+                "서천군": {"lat": 36.0805, "lng": 126.6919},
+                "아산시": {"lat": 36.7898, "lng": 127.0019},
+                "예산군": {"lat": 36.6826, "lng": 126.8503},
+                "천안시": {"lat": 36.8151, "lng": 127.1139},
+                "청양군": {"lat": 36.4590, "lng": 126.8025},
+                "태안군": {"lat": 36.7456, "lng": 126.2983},
+                "홍성군": {"lat": 36.6012, "lng": 126.6608},
+                
+                # 전북특별자치도 및 하위 시·군
+                "전북특별자치도": {"lat": 35.7175, "lng": 127.1530},
+                "고창군": {"lat": 35.4346, "lng": 126.7017},
+                "군산시": {"lat": 35.9678, "lng": 126.7368},
+                "김제시": {"lat": 35.8033, "lng": 126.8805},
+                "남원시": {"lat": 35.4163, "lng": 127.3906},
+                "무주군": {"lat": 36.0073, "lng": 127.6610},
+                "부안군": {"lat": 35.7318, "lng": 126.7332},
+                "순창군": {"lat": 35.3748, "lng": 127.1374},
+                "완주군": {"lat": 35.9058, "lng": 127.1649},
+                "익산시": {"lat": 35.9483, "lng": 126.9575},
+                "임실군": {"lat": 35.6176, "lng": 127.2896},
+                "장수군": {"lat": 35.6477, "lng": 127.5217},
+                "전주시": {"lat": 35.8242, "lng": 127.1480},
+                "정읍시": {"lat": 35.5700, "lng": 126.8557},
+                "진안군": {"lat": 35.7917, "lng": 127.4244},
+                
+                # 전라남도 및 하위 시·군
+                "전라남도": {"lat": 34.8679, "lng": 126.9910},
+                "강진군": {"lat": 34.6417, "lng": 126.7669},
+                "고흥군": {"lat": 34.6111, "lng": 127.2855},
+                "곡성군": {"lat": 35.2818, "lng": 127.2914},
+                "광양시": {"lat": 34.9406, "lng": 127.5956},
+                "구례군": {"lat": 35.2020, "lng": 127.4632},
+                "나주시": {"lat": 35.0160, "lng": 126.7107},
+                "담양군": {"lat": 35.3214, "lng": 126.9882},
+                "목포시": {"lat": 34.8118, "lng": 126.3922},
+                "무안군": {"lat": 34.9900, "lng": 126.4816},
+                "보성군": {"lat": 34.7712, "lng": 127.0800},
+                "순천시": {"lat": 34.9507, "lng": 127.4872},
+                "신안군": {"lat": 34.8267, "lng": 126.1063},
+                "여수시": {"lat": 34.7604, "lng": 127.6622},
+                "영광군": {"lat": 35.2773, "lng": 126.5120},
+                "영암군": {"lat": 34.8000, "lng": 126.6968},
+                "완도군": {"lat": 34.3105, "lng": 126.7551},
+                "장성군": {"lat": 35.3017, "lng": 126.7886},
+                "장흥군": {"lat": 34.6816, "lng": 126.9066},
+                "진도군": {"lat": 34.4867, "lng": 126.2636},
+                "함평군": {"lat": 35.0666, "lng": 126.5168},
+                "해남군": {"lat": 34.5736, "lng": 126.5986},
+                "화순군": {"lat": 35.0648, "lng": 126.9855},
+                
+                # 경상북도 및 하위 시·군
+                "경상북도": {"lat": 36.4919, "lng": 128.8889},
+                "경산시": {"lat": 35.8251, "lng": 128.7411},
+                "경주시": {"lat": 35.8562, "lng": 129.2247},
+                "고령군": {"lat": 35.7284, "lng": 128.2634},
+                "구미시": {"lat": 36.1196, "lng": 128.3441},
+                "군위군": {"lat": 36.2393, "lng": 128.5717},
+                "김천시": {"lat": 36.1395, "lng": 128.1137},
+                "문경시": {"lat": 36.5866, "lng": 128.1866},
+                "봉화군": {"lat": 36.8932, "lng": 128.7327},
+                "상주시": {"lat": 36.4107, "lng": 128.1590},
+                "성주군": {"lat": 35.9186, "lng": 128.2829},
+                "안동시": {"lat": 36.5684, "lng": 128.7294},
+                "영덕군": {"lat": 36.4153, "lng": 129.3655},
+                "영양군": {"lat": 36.6666, "lng": 129.1124},
+                "영주시": {"lat": 36.8056, "lng": 128.6239},
+                "영천시": {"lat": 35.9733, "lng": 128.9386},
+                "예천군": {"lat": 36.6580, "lng": 128.4517},
+                "울릉군": {"lat": 37.4845, "lng": 130.9058},
+                "울진군": {"lat": 36.9930, "lng": 129.4004},
+                "의성군": {"lat": 36.3526, "lng": 128.6974},
+                "청도군": {"lat": 35.6477, "lng": 128.7363},
+                "청송군": {"lat": 36.4359, "lng": 129.0572},
+                "칠곡군": {"lat": 35.9951, "lng": 128.4019},
+                "포항시": {"lat": 36.0190, "lng": 129.3435},
+                
+                # 경상남도 및 하위 시·군
+                "경상남도": {"lat": 35.4606, "lng": 128.2132},
+                "거제시": {"lat": 34.8804, "lng": 128.6212},
+                "거창군": {"lat": 35.6869, "lng": 127.9095},
+                "고성군": {"lat": 34.9735, "lng": 128.3229},
+                "김해시": {"lat": 35.2342, "lng": 128.8899},
+                "남해군": {"lat": 34.8375, "lng": 127.8926},
+                "밀양시": {"lat": 35.5040, "lng": 128.7469},
+                "사천시": {"lat": 35.0036, "lng": 128.0645},
+                "산청군": {"lat": 35.4150, "lng": 127.8736},
+                "양산시": {"lat": 35.3350, "lng": 129.0371},
+                "의령군": {"lat": 35.3219, "lng": 128.2618},
+                "진주시": {"lat": 35.1800, "lng": 128.1076},
+                "창녕군": {"lat": 35.5444, "lng": 128.4924},
+                "창원시": {"lat": 35.2281, "lng": 128.6811},
+                "통영시": {"lat": 34.8544, "lng": 128.4331},
+                "하동군": {"lat": 35.0675, "lng": 127.7514},
+                "함안군": {"lat": 35.2730, "lng": 128.4069},
+                "함양군": {"lat": 35.5203, "lng": 127.7252},
+                "합천군": {"lat": 35.5666, "lng": 128.1655},
+            }
+                        
+            coords = region_coords.get(analysis.region, {"lat": 37.5665, "lng": 126.9780})
+            
+            url = "https://api.foursquare.com/v3/places/search"
+            headers = {
+                "Authorization": FOURSQUARE_API_KEY,
+                "Accept": "application/json"
+            }
+            
+            # 카테고리별 필터링 추가
+            category_filters = {
+                "대학교": ["대학교", "대학", "university", "college"],
+                "경기장": ["경기장", "stadium", "스포츠", "축구"],
+                "식당": ["식당", "레스토랑", "restaurant", "음식", "맛집"],
+                "카페": ["카페", "커피", "coffee", "cafe", "디저트"]
+            }
+            
+            # 검색 전략 개선
+            search_strategies = []
+            
+            # 1) 구체적인 장소명 (대학교, 경기장 등)
+            if any(keyword in analysis.place_name.lower() for keyword in ['대학교', '경기장', '월드컵', '공항', '역']):
+                search_strategies.append(analysis.place_name)
+            
+            # 2) 지역명 + 장소명
+            region_name = analysis.region.replace('특별시', '').replace('광역시', '')
+            search_strategies.append(f"{region_name} {analysis.place_name}")
+            
+            # 3) 카테고리별 특화 검색
+            place_lower = analysis.place_name.lower()
+            if "식당" in place_lower or "restaurant" in analysis.category.lower():
+                search_strategies.extend([
+                    f"{region_name} 맛집",
+                    f"{region_name} 식당",
+                    f"{region_name} restaurant"
+                ])
+            elif "카페" in place_lower or "cafe" in analysis.category.lower():
+                search_strategies.extend([
+                    f"{region_name} 카페",
+                    f"{region_name} 커피",
+                    f"{region_name} cafe"
+                ])
+            
+            logger.info(f"🔍 검색 전략: {search_strategies}")
+            
+            for strategy in search_strategies:
+                try:
+                    params = {
+                        "query": strategy,
+                        "ll": f"{coords['lat']},{coords['lng']}",
+                        "radius": 15000,
+                        "limit": 15,
+                        "sort": "DISTANCE"
+                    }
+                    
+                    logger.info(f"🔍 Foursquare 검색어: '{strategy}'")
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url, headers=headers, params=params) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                
+                                if data.get("results"):
+                                    logger.info(f"✅ Foursquare 결과 {len(data['results'])}개 발견")
+                                    
+                                    # 카테고리 일치 점수 계산 강화
+                                    for i, place in enumerate(data["results"]):
+                                        location = place.get("geocodes", {}).get("main", {})
+                                        address = place.get("location", {}).get("formatted_address", "")
+                                        place_name = place.get("name", "")
+                                        
+                                        logger.info(f"   후보 {i+1}: {place_name} - {address}")
+                                        
+                                        if not (location.get("latitude") and location.get("longitude")):
+                                            continue
+                                        
+                                        # 지역 일치 확인
+                                        region_keywords = [
+                                            analysis.region.replace('특별시', '').replace('광역시', ''),
+                                            analysis.district
+                                        ]
+                                        region_match = any(keyword in address for keyword in region_keywords if keyword)
+                                        
+                                        # 장소명 유사도 확인 (강화)
+                                        name_similarity = 0
+                                        search_terms = analysis.place_name.lower().split()
+                                        place_terms = place_name.lower().split()
+                                        
+                                        for term in search_terms:
+                                            if len(term) > 1:
+                                                if any(term in pt for pt in place_terms):
+                                                    name_similarity += 1
+                                        
+                                        # 카테고리 일치 확인 (새로 추가)
+                                        category_match = 0
+                                        for category, keywords in category_filters.items():
+                                            if category in analysis.place_name.lower():
+                                                for keyword in keywords:
+                                                    if keyword in place_name.lower():
+                                                        category_match += 1
+                                                        break
+                                        
+                                        # 부정적인 카테고리 필터링 (학원, 병원 등 제외)
+                                        negative_keywords = ["학원", "병원", "의원", "클리닉", "academy", "hospital"]
+                                        is_negative = any(neg in place_name.lower() for neg in negative_keywords)
+                                        
+                                        # 종합 점수 계산
+                                        score = (1 if region_match else 0) + (name_similarity * 0.5) + (category_match * 0.3)
+                                        
+                                        # 부정적 키워드가 있으면 점수 대폭 감소
+                                        if is_negative:
+                                            score = max(0, score - 1.0)
+                                        
+                                        logger.info(f"     지역일치: {region_match}, 이름유사도: {name_similarity}, 카테고리매치: {category_match}, 부정적: {is_negative}, 점수: {score}")
+                                        
+                                        # 최소 점수 기준 상향 조정
+                                        if score >= 1.0:  # 0.5 → 1.0으로 상향
+                                            result = PlaceResult(
+                                                name=place_name,
+                                                address=address,
+                                                latitude=location["latitude"],
+                                                longitude=location["longitude"],
+                                                source="foursquare",
+                                                rating=place.get("rating")
+                                            )
+                                            
+                                            logger.info(f"✅ Foursquare 검색 성공: {result.name}")
+                                            logger.info(f"   📍 주소: {result.address}")
+                                            return result
+                                    
+                                    logger.info(f"⚠️ 검색어 '{strategy}' - 적절한 결과 없음")
+                                else:
+                                    logger.info(f"⚠️ 검색어 '{strategy}' - 결과 없음")
+                            else:
+                                logger.warning(f"⚠️ Foursquare API 오류: {response.status}")
+                                
+                except Exception as e:
+                    logger.error(f"❌ 검색어 '{strategy}' 오류: {e}")
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"❌ Foursquare 검색 전체 오류: {e}")
+        
+        logger.warning(f"⚠️ Foursquare 모든 검색 실패: {analysis.place_name}")
+        return None
+
     @staticmethod
     async def enhanced_search_with_quality_check(place_text: str) -> Optional[PlaceResult]:
         """주소 완전성 검증과 재검색을 포함한 향상된 검색"""
@@ -377,15 +769,18 @@ JSON 형식으로 응답:
 
     @staticmethod
     async def search_google_enhanced(analysis: LocationAnalysis, query: str) -> Optional[PlaceResult]:
-        """Google Places API 확장 검색"""
+        """Google Places API 확장 검색 - 수정된 버전"""
         if not GOOGLE_MAPS_API_KEY:
             return None
             
         try:
             url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
             
+            # 지역 제한 강화
+            region_query = f"{analysis.region.replace('특별시', '').replace('광역시', '')} {analysis.district} {query}"
+            
             params = {
-                'input': query,
+                'input': region_query,
                 'inputtype': 'textquery',
                 'fields': 'name,formatted_address,geometry,rating',
                 'language': 'ko',
@@ -402,7 +797,12 @@ JSON 형식으로 응답:
                             for place in data['candidates']:
                                 address = place.get('formatted_address', '')
                                 
-                                if AddressQualityChecker.is_complete_address(address):
+                                # 지역 일치 확인 강화
+                                region_match = any(region_name in address for region_name in 
+                                                 [analysis.region.replace('특별시', '').replace('광역시', ''), 
+                                                  analysis.district])
+                                
+                                if AddressQualityChecker.is_complete_address(address) and region_match:
                                     location = place['geometry']['location']
                                     return PlaceResult(
                                         name=place.get('name', analysis.place_name),
@@ -417,206 +817,287 @@ JSON 형식으로 응답:
             logger.error(f"❌ Google 확장 검색 오류: {e}")
         
         return None
-            
-        logger.info(f"🔍 1순위 Foursquare 검색: {analysis.place_name}")
-        
-        try:
-            # 지역 좌표 기본값 설정
-            region_coords = {
-                "제주특별자치도": {"lat": 33.4996, "lng": 126.5312},
-                "서울특별시": {"lat": 37.5665, "lng": 126.9780},
-                "부산광역시": {"lat": 35.1796, "lng": 129.0756}
-            }
-            
-            coords = region_coords.get(analysis.region, {"lat": 37.5665, "lng": 126.9780})
-            
-            url = "https://api.foursquare.com/v3/places/search"
-            headers = {
-                "Authorization": FOURSQUARE_API_KEY,
-                "Accept": "application/json"
-            }
-            
-            # 여러 키워드로 검색 시도
-            for keyword in analysis.search_keywords:
-                params = {
-                    "query": keyword,
-                    "ll": f"{coords['lat']},{coords['lng']}",
-                    "radius": 50000,  # 50km
-                    "limit": 5
-                }
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, headers=headers, params=params) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            
-                            if data.get("results"):
-                                place = data["results"][0]
-                                location = place.get("geocodes", {}).get("main", {})
-                                
-                                if location.get("latitude") and location.get("longitude"):
-                                    result = PlaceResult(
-                                        name=place.get("name", analysis.place_name),
-                                        address=place.get("location", {}).get("formatted_address", ""),
-                                        latitude=location["latitude"],
-                                        longitude=location["longitude"],
-                                        source="foursquare",
-                                        rating=place.get("rating")
-                                    )
-                                    
-                                    logger.info(f"✅ Foursquare 검색 성공: {result.name}")
-                                    logger.info(f"   📍 주소: {result.address}")
-                                    return result
-                        else:
-                            logger.warning(f"⚠️ Foursquare API 오류: {response.status}")
-                            
-        except Exception as e:
-            logger.error(f"❌ Foursquare 검색 오류: {e}")
-        
-        return None
+
 
     @staticmethod
     async def search_kakao(analysis: LocationAnalysis) -> Optional[PlaceResult]:
-        """2순위: Kakao API 검색 (교통시설 우선)"""
+        """1순위: Kakao API 검색 - 강화된 버전"""
         if not KAKAO_REST_API_KEY:
             logger.warning("❌ Kakao API 키가 없습니다")
             return None
             
-        # 교통시설은 카카오를 우선으로
-        is_transport = any(word in analysis.place_name.lower() for word in 
-                          ["역", "공항", "터미널", "정류장", "지하철", "기차"])
-        
-        if is_transport:
-            logger.info(f"🚇 교통시설 우선 Kakao 검색: {analysis.place_name}")
-        else:
-            logger.info(f"🔍 2순위 Kakao 검색: {analysis.place_name}")
+        logger.info(f"🔍 1순위 Kakao 검색: {analysis.place_name}")
         
         try:
             url = "https://dapi.kakao.com/v2/local/search/keyword.json"
             headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
             
-            # 지역 제한 검색
-            region_filter = f"{analysis.region} {analysis.district}"
+            # 검색 전략 - 구체적인 것부터 일반적인 것까지
+            search_strategies = []
             
-            for keyword in analysis.search_keywords:
-                search_query = f"{region_filter} {keyword}"
-                params = {
-                    "query": search_query,
-                    "size": 5
-                }
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, headers=headers, params=params) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            
-                            if data.get("documents"):
-                                place = data["documents"][0]
+            # 1) 구체적 장소명 (대학교, 경기장 등)
+            if any(keyword in analysis.place_name.lower() for keyword in ['대학교', '경기장', '월드컵', '공항', '역']):
+                search_strategies.append(analysis.place_name)
+                search_strategies.append(f"{analysis.region.replace('광역시', '').replace('특별시', '')} {analysis.place_name}")
+            
+            # 2) 카테고리별 검색
+            place_lower = analysis.place_name.lower()
+            region_name = analysis.region.replace('광역시', '').replace('특별시', '')
+            
+            if any(word in place_lower for word in ['식당', 'restaurant', '맛집']):
+                search_strategies.extend([
+                    f"{region_name} {analysis.district} 맛집",
+                    f"{region_name} {analysis.district} 식당",
+                    f"{region_name} 맛집",
+                    f"{region_name} 식당"
+                ])
+            elif any(word in place_lower for word in ['카페', 'cafe', '커피']):
+                search_strategies.extend([
+                    f"{region_name} {analysis.district} 카페",
+                    f"{region_name} {analysis.district} 커피",
+                    f"{region_name} 카페",
+                    f"{region_name} 커피숍"
+                ])
+            else:
+                # 일반 검색
+                search_strategies.extend([
+                    f"{region_name} {analysis.place_name}",
+                    f"{region_name} {analysis.district} {analysis.place_name}"
+                ])
+            
+            logger.info(f"🔍 Kakao 검색 전략: {search_strategies}")
+            
+            for strategy in search_strategies:
+                try:
+                    params = {
+                        "query": strategy,
+                        "size": 15,  # 더 많은 결과
+                        "sort": "accuracy"  # 정확도순
+                    }
+                    
+                    logger.info(f"🔍 Kakao 검색어: '{strategy}'")
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url, headers=headers, params=params) as response:
+                            if response.status == 200:
+                                data = await response.json()
                                 
-                                result = PlaceResult(
-                                    name=place.get("place_name", analysis.place_name),
-                                    address=place.get("road_address_name") or place.get("address_name", ""),
-                                    latitude=float(place.get("y", 0)),
-                                    longitude=float(place.get("x", 0)),
-                                    source="kakao"
-                                )
+                                if data.get("documents"):
+                                    logger.info(f"✅ Kakao 결과 {len(data['documents'])}개 발견")
+                                    
+                                    for i, place in enumerate(data["documents"]):
+                                        place_name = place.get("place_name", "")
+                                        address = place.get("road_address_name") or place.get("address_name", "")
+                                        category = place.get("category_name", "")
+                                        
+                                        logger.info(f"   후보 {i+1}: {place_name} - {address} ({category})")
+                                        
+                                        if not address.strip():
+                                            continue
+                                        
+                                        # 지역 일치 확인
+                                        region_keywords = [
+                                            analysis.region.replace('광역시', '').replace('특별시', ''),
+                                            analysis.district
+                                        ]
+                                        region_match = any(keyword in address for keyword in region_keywords if keyword)
+                                        
+                                        # 카테고리 적합성 확인
+                                        category_match = False
+                                        if "식당" in analysis.place_name.lower() or "restaurant" in analysis.category.lower():
+                                            category_match = any(word in category for word in ["음식점", "식당", "레스토랑", "한식", "중식", "일식", "양식", "카페"])
+                                        elif "카페" in analysis.place_name.lower() or "cafe" in analysis.category.lower():
+                                            category_match = any(word in category for word in ["카페", "커피", "디저트", "베이커리"])
+                                        elif "대학교" in analysis.place_name.lower():
+                                            category_match = any(word in category for word in ["대학교", "학교", "교육"])
+                                        elif "경기장" in analysis.place_name.lower():
+                                            category_match = any(word in category for word in ["스포츠", "경기장", "체육"])
+                                        else:
+                                            category_match = True  # 기타는 일단 허용
+                                        
+                                        # 부정적 키워드 필터
+                                        negative_keywords = ["학원", "병원", "의원", "클리닉", "약국"]
+                                        is_negative = any(neg in place_name for neg in negative_keywords)
+                                        
+                                        # 점수 계산
+                                        score = 0
+                                        if region_match:
+                                            score += 2
+                                        if category_match:
+                                            score += 1
+                                        if is_negative:
+                                            score -= 2
+                                        
+                                        logger.info(f"     지역일치: {region_match}, 카테고리적합: {category_match}, 부정적: {is_negative}, 점수: {score}")
+                                        
+                                        if score >= 1:  # 최소 점수
+                                            result = PlaceResult(
+                                                name=place_name,
+                                                address=address,
+                                                latitude=float(place.get("y", 0)),
+                                                longitude=float(place.get("x", 0)),
+                                                source="kakao"
+                                            )
+                                            
+                                            logger.info(f"✅ Kakao 검색 성공: {result.name}")
+                                            logger.info(f"   📍 주소: {result.address}")
+                                            logger.info(f"   🏷️ 카테고리: {category}")
+                                            return result
+                                    
+                                    logger.info(f"⚠️ Kakao 검색어 '{strategy}' - 적절한 결과 없음")
+                                else:
+                                    logger.info(f"⚠️ Kakao 검색어 '{strategy}' - 결과 없음")
+                            else:
+                                logger.warning(f"⚠️ Kakao API 오류: {response.status}")
                                 
-                                logger.info(f"✅ Kakao 검색 성공: {result.name}")
-                                logger.info(f"   📍 주소: {result.address}")
-                                return result
-                        else:
-                            logger.warning(f"⚠️ Kakao API 오류: {response.status}")
-                            
+                except Exception as e:
+                    logger.error(f"❌ Kakao 검색어 '{strategy}' 오류: {e}")
+                    continue
+                    
         except Exception as e:
-            logger.error(f"❌ Kakao 검색 오류: {e}")
+            logger.error(f"❌ Kakao 검색 전체 오류: {e}")
         
+        logger.warning(f"⚠️ Kakao 모든 검색 실패: {analysis.place_name}")
         return None
 
     @staticmethod
     async def search_google(analysis: LocationAnalysis) -> Optional[PlaceResult]:
-        """3순위: Google Places API 검색"""
+        """2순위: Google Places API 검색 - 강화된 버전"""
         if not GOOGLE_MAPS_API_KEY:
             logger.warning("❌ Google API 키가 없습니다")
             return None
             
-        logger.info(f"🔍 3순위 Google 검색: {analysis.place_name}")
+        logger.info(f"🔍 2순위 Google 검색: {analysis.place_name}")
         
         try:
             url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
             
-            for keyword in analysis.search_keywords:
-                search_query = f"{analysis.region} {analysis.district} {keyword}"
-                params = {
-                    'input': search_query,
-                    'inputtype': 'textquery',
-                    'fields': 'name,formatted_address,geometry,rating',
-                    'language': 'ko',
-                    'region': 'kr',
-                    'key': GOOGLE_MAPS_API_KEY
-                }
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, params=params) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            
-                            if data.get('status') == 'OK' and data.get('candidates'):
-                                place = data['candidates'][0]
-                                location = place['geometry']['location']
+            # 검색 전략
+            region_name = analysis.region.replace('광역시', '').replace('특별시', '')
+            search_strategies = []
+            
+            # 구체적 장소명
+            if any(keyword in analysis.place_name.lower() for keyword in ['대학교', '경기장', '월드컵']):
+                search_strategies.extend([
+                    f"{region_name} {analysis.place_name}",
+                    analysis.place_name
+                ])
+            
+            # 카테고리별 검색
+            place_lower = analysis.place_name.lower()
+            if any(word in place_lower for word in ['식당', 'restaurant']):
+                search_strategies.extend([
+                    f"{region_name} {analysis.district} restaurant",
+                    f"{region_name} 맛집"
+                ])
+            elif any(word in place_lower for word in ['카페', 'cafe']):
+                search_strategies.extend([
+                    f"{region_name} {analysis.district} cafe",
+                    f"{region_name} 카페"
+                ])
+            
+            logger.info(f"🔍 Google 검색 전략: {search_strategies}")
+            
+            for strategy in search_strategies:
+                try:
+                    params = {
+                        'input': strategy,
+                        'inputtype': 'textquery',
+                        'fields': 'name,formatted_address,geometry,rating,types',
+                        'language': 'ko',
+                        'region': 'kr',
+                        'key': GOOGLE_MAPS_API_KEY
+                    }
+                    
+                    logger.info(f"🔍 Google 검색어: '{strategy}'")
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url, params=params) as response:
+                            if response.status == 200:
+                                data = await response.json()
                                 
-                                result = PlaceResult(
-                                    name=place.get('name', analysis.place_name),
-                                    address=place.get('formatted_address', ''),
-                                    latitude=location['lat'],
-                                    longitude=location['lng'],
-                                    source="google",
-                                    rating=place.get('rating')
-                                )
+                                if data.get('status') == 'OK' and data.get('candidates'):
+                                    logger.info(f"✅ Google 결과 {len(data['candidates'])}개 발견")
+                                    
+                                    for i, place in enumerate(data['candidates']):
+                                        place_name = place.get('name', '')
+                                        address = place.get('formatted_address', '')
+                                        types = place.get('types', [])
+                                        
+                                        logger.info(f"   후보 {i+1}: {place_name} - {address}")
+                                        logger.info(f"     타입: {types}")
+                                        
+                                        # 지역 일치 확인
+                                        region_keywords = [region_name, analysis.district]
+                                        region_match = any(keyword in address for keyword in region_keywords if keyword)
+                                        
+                                        # 타입 적합성 확인
+                                        type_match = False
+                                        if "식당" in analysis.place_name.lower():
+                                            type_match = any(t in types for t in ["restaurant", "food", "meal_takeaway"])
+                                        elif "카페" in analysis.place_name.lower():  
+                                            type_match = any(t in types for t in ["cafe", "bakery"])
+                                        elif "대학교" in analysis.place_name.lower():
+                                            type_match = any(t in types for t in ["university", "school"])
+                                        elif "경기장" in analysis.place_name.lower():
+                                            type_match = any(t in types for t in ["stadium", "gym"])
+                                        else:
+                                            type_match = True
+                                        
+                                        score = (1 if region_match else 0) + (1 if type_match else 0)
+                                        logger.info(f"     지역일치: {region_match}, 타입적합: {type_match}, 점수: {score}")
+                                        
+                                        if score >= 1:
+                                            location = place['geometry']['location']
+                                            result = PlaceResult(
+                                                name=place_name,
+                                                address=address,
+                                                latitude=location['lat'],
+                                                longitude=location['lng'],
+                                                source="google",
+                                                rating=place.get('rating')
+                                            )
+                                            
+                                            logger.info(f"✅ Google 검색 성공: {result.name}")
+                                            logger.info(f"   📍 주소: {result.address}")
+                                            return result
+                                    
+                                    logger.info(f"⚠️ Google 검색어 '{strategy}' - 적절한 결과 없음")
+                                else:
+                                    logger.info(f"⚠️ Google API 응답: {data.get('status', 'UNKNOWN')}")
+                            else:
+                                logger.warning(f"⚠️ Google API 오류: {response.status}")
                                 
-                                logger.info(f"✅ Google 검색 성공: {result.name}")
-                                logger.info(f"   📍 주소: {result.address}")
-                                return result
-                        else:
-                            logger.warning(f"⚠️ Google API 오류: {response.status}")
-                            
+                except Exception as e:
+                    logger.error(f"❌ Google 검색어 '{strategy}' 오류: {e}")
+                    continue
+                    
         except Exception as e:
-            logger.error(f"❌ Google 검색 오류: {e}")
+            logger.error(f"❌ Google 검색 전체 오류: {e}")
         
+        logger.warning(f"⚠️ Google 모든 검색 실패: {analysis.place_name}")
         return None
 
     @staticmethod
     async def search_triple_api(place_text: str) -> Optional[PlaceResult]:
-        """3중 API 순차 검색 (교통시설은 Kakao 우선)"""
+        """3중 API 순차 검색 - 카카오 우선으로 변경"""
         logger.info(f"🎯 3중 API 검색 시작: {place_text}")
         
         # 1단계: GPT로 지역 분석
         analysis = await TripleLocationSearchService.analyze_location_with_gpt(place_text)
         logger.info(f"📊 분석 결과: {analysis.region} {analysis.district} - {analysis.place_name}")
         
-        # 교통시설 체크
-        is_transport = any(word in analysis.place_name.lower() for word in 
-                          ["역", "공항", "터미널", "정류장", "지하철", "기차"])
-        
-        # 2단계: 검색 순서 결정
-        if is_transport:
-            # 교통시설: Kakao → Foursquare → Google
-            search_methods = [
-                ("Kakao (교통우선)", TripleLocationSearchService.search_kakao),
-                ("Foursquare", TripleLocationSearchService.search_foursquare),
-                ("Google", TripleLocationSearchService.search_google)
-            ]
-        else:
-            # 일반시설: Foursquare → Kakao → Google
-            search_methods = [
-                ("Foursquare", TripleLocationSearchService.search_foursquare),
-                ("Kakao", TripleLocationSearchService.search_kakao),
-                ("Google", TripleLocationSearchService.search_google)
-            ]
+        # 2단계: 검색 순서 결정 - 카카오 우선!
+        search_methods = [
+            ("Kakao (1순위)", TripleLocationSearchService.search_kakao),
+            ("Google (2순위)", TripleLocationSearchService.search_google),
+            ("Foursquare (3순위)", TripleLocationSearchService.search_foursquare)
+        ]
         
         for api_name, search_method in search_methods:
             try:
                 result = await asyncio.wait_for(search_method(analysis), timeout=10)
-                if result:
+                if result and result.address and result.address.strip():
                     logger.info(f"🎉 {api_name}에서 검색 성공!")
                     return result
                 else:
@@ -628,50 +1109,30 @@ JSON 형식으로 응답:
         
         # 모든 API 실패 시 기본 좌표 반환
         logger.warning(f"⚠️ 모든 API 검색 실패, 기본 좌표 사용: {place_text}")
-        region_defaults = {
-            "제주": {"lat": 33.4996, "lng": 126.5312, "addr": "제주특별자치도"},
-            "서울": {"lat": 37.5665, "lng": 126.9780, "addr": "서울특별시"},
-            "부산": {"lat": 35.1796, "lng": 129.0756, "addr": "부산광역시"},
-            "춘천": {"lat": 37.8817, "lng": 127.7297, "addr": "강원특별자치도 춘천시"}
-        }
-        
-        for city, coords in region_defaults.items():
-            if city in place_text:
-                return PlaceResult(
-                    name=place_text,
-                    address=coords["addr"],
-                    latitude=coords["lat"],
-                    longitude=coords["lng"],
-                    source="default"
-                )
-        
         return None
 
 # ----- 비동기 위치 정보 보강 -----
 async def enhance_locations_with_triple_api(schedule_data: Dict) -> Dict:
-    """3중 API로 위치 정보 보강"""
+    """3중 API로 위치 정보 보강 - 참조 위치 활용"""
     logger.info("🚀 3중 API 위치 정보 보강 시작")
     
     try:
         enhanced_data = json.loads(json.dumps(schedule_data))
         
-        # 병렬 처리할 작업들
-        tasks = []
-        
-        # 모든 일정 처리
+        # 모든 일정 수집 (순서대로)
         all_schedules = []
         all_schedules.extend(enhanced_data.get("fixedSchedules", []))
         all_schedules.extend(enhanced_data.get("flexibleSchedules", []))
         
-        for schedule in all_schedules:
-            task = enhance_single_schedule_triple(schedule)
-            tasks.append(task)
+        # 순차적으로 처리하여 이전 일정의 위치를 참조로 활용
+        processed_schedules = []
         
-        # 병렬 실행
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            success_count = len([r for r in results if not isinstance(r, Exception)])
-            logger.info(f"✅ 3중 API 위치 보강 완료: {success_count}/{len(tasks)}개 성공")
+        for i, schedule in enumerate(all_schedules):
+            # 이전 처리된 일정들을 참조로 전달
+            enhanced_schedule = await enhance_single_schedule_triple(schedule, processed_schedules)
+            processed_schedules.append(enhanced_schedule)
+        
+        logger.info(f"✅ 3중 API 위치 보강 완료: {len(processed_schedules)}개 처리")
         
         return enhanced_data
         
@@ -679,35 +1140,96 @@ async def enhance_locations_with_triple_api(schedule_data: Dict) -> Dict:
         logger.error(f"❌ 3중 API 위치 보강 실패: {e}")
         return schedule_data
 
-async def enhance_single_schedule_triple(schedule: Dict):
-    """단일 일정의 3중 API + 품질 검증 위치 검색"""
+def _is_reasonable_distance(address1: str, address2: str) -> bool:
+    """두 주소가 합리적인 거리 내에 있는지 확인"""
+    try:
+        # 시/도 단위 비교
+        regions1 = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"]
+        
+        region1 = None
+        region2 = None
+        
+        for region in regions1:
+            if region in address1:
+                region1 = region
+            if region in address2:
+                region2 = region
+        
+        # 같은 광역시/도면 OK
+        if region1 == region2:
+            return True
+        
+        # 인접 지역 허용 (예: 서울-경기, 부산-경남 등)
+        adjacent_regions = {
+            "서울": ["경기"],
+            "경기": ["서울", "강원", "충북", "충남"],
+            "부산": ["경남"],
+            "경남": ["부산", "경북"],
+            "울산": ["경남", "경북"],
+            "대구": ["경북", "경남"]
+        }
+        
+        if region1 in adjacent_regions and region2 in adjacent_regions[region1]:
+            return True
+        if region2 in adjacent_regions and region1 in adjacent_regions[region2]:
+            return True
+            
+        # 그 외는 너무 멀다고 판단
+        logger.info(f"📏 거리 체크: {region1} vs {region2} - 너무 멀음")
+        return False
+        
+    except Exception:
+        return True  # 오류 시 허용
+    
+async def enhance_single_schedule_triple(schedule: Dict, reference_schedules: List[Dict] = None):
+    """단일 일정의 3중 API + 품질 검증 위치 검색 - 카카오 우선"""
     place_name = schedule.get("name", "")
     if not place_name:
         return schedule
     
     logger.info(f"🎯 품질 검증 위치 검색: {place_name}")
     
+    # 참조 위치 찾기
+    reference_location = None
+    if reference_schedules:
+        for ref_schedule in reference_schedules:
+            if ref_schedule.get("location") and ref_schedule["location"].strip():
+                reference_location = ref_schedule["location"]
+                logger.info(f"📍 참조 위치 설정: {reference_location}")
+                break
+    
     try:
-        # 향상된 품질 검증 검색 사용
-        result = await TripleLocationSearchService.enhanced_search_with_quality_check(place_name)
+        # 참조 위치를 고려한 분석
+        analysis = await TripleLocationSearchService.analyze_location_with_gpt(place_name, reference_location)
         
-        if result and result.address and result.address.strip():
-            # 빈 주소가 아닌 경우만 업데이트
-            schedule["location"] = result.address
-            schedule["latitude"] = result.latitude
-            schedule["longitude"] = result.longitude
-            
-            logger.info(f"✅ 품질 검증 위치 업데이트 완료: {place_name}")
-            logger.info(f"   🏢 이름: {result.name}")
-            logger.info(f"   📍 주소: {result.address}")
-            logger.info(f"   🌍 좌표: {result.latitude}, {result.longitude}")
-            logger.info(f"   🔗 출처: {result.source}")
-            
-            # 주소 완전성 재확인 및 로깅
-            is_complete = AddressQualityChecker.is_complete_address(result.address)
-            logger.info(f"   📊 최종 주소 품질: {'✅ 완전' if is_complete else '⚠️ 불완전'}")
-        else:
-            logger.warning(f"⚠️ 위치 검색 실패 또는 빈 주소: {place_name}")
+        # 카카오 우선 검색 순서
+        search_methods = [
+            ("Kakao", TripleLocationSearchService.search_kakao),
+            ("Google", TripleLocationSearchService.search_google),
+            ("Foursquare", TripleLocationSearchService.search_foursquare)
+        ]
+        
+        for api_name, search_method in search_methods:
+            try:
+                result = await asyncio.wait_for(search_method(analysis), timeout=10)
+                if result and result.address and result.address.strip():
+                    # 참조 위치와의 거리 체크
+                    if reference_location and not _is_reasonable_distance(reference_location, result.address):
+                        logger.warning(f"⚠️ {api_name} 결과가 참조 위치와 너무 멀어서 제외: {result.address}")
+                        continue
+                    
+                    schedule["location"] = result.address
+                    schedule["latitude"] = result.latitude
+                    schedule["longitude"] = result.longitude
+                    
+                    logger.info(f"✅ {api_name} 위치 업데이트 완료: {place_name}")
+                    logger.info(f"   📍 주소: {result.address}")
+                    return schedule
+                    
+            except Exception as e:
+                logger.error(f"❌ {api_name} 검색 오류: {e}")
+        
+        logger.warning(f"⚠️ 모든 API 검색 실패: {place_name}")
             
     except Exception as e:
         logger.error(f"❌ 위치 검색 오류: {place_name}, {e}")
@@ -819,7 +1341,7 @@ def create_schedule_chain():
     
     llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
-        model_name="gpt-3.5-turbo",
+        model_name="gpt-4-turbo",
         temperature=0
     )
     
@@ -833,12 +1355,42 @@ def create_schedule_chain():
 async def root():
     return {"message": "3중 API (Foursquare+Kakao+Google) 정확한 주소 검색 일정 추출 API v3.0", "status": "running"}
 
+# app.py에서 AddressQualityChecker 클래스 뒤에 추가 (클래스 밖에!)
+
+# ----- 유틸리티 함수들 -----
+def normalize_priorities(schedules_data: Dict[str, Any]) -> Dict[str, Any]:
+    """우선순위를 정수로 정규화"""
+    logger.info("🔢 우선순위 정수 변환 시작")
+    
+    all_schedules = []
+    all_schedules.extend(schedules_data.get("fixedSchedules", []))
+    all_schedules.extend(schedules_data.get("flexibleSchedules", []))
+    
+    # 우선순위로 정렬
+    all_schedules.sort(key=lambda s: s.get("priority", 999))
+    
+    # 1부터 시작하는 정수로 재할당
+    for i, schedule in enumerate(all_schedules):
+        old_priority = schedule.get("priority", "없음")
+        new_priority = i + 1
+        schedule["priority"] = new_priority
+        logger.info(f"우선순위 정규화: '{schedule.get('name', '')}' {old_priority} → {new_priority}")
+    
+    # 다시 분류
+    fixed_schedules = [s for s in all_schedules if s.get("type") == "FIXED" and "startTime" in s]
+    flexible_schedules = [s for s in all_schedules if s.get("type") != "FIXED" or "startTime" not in s]
+    
+    logger.info(f"✅ 우선순위 정규화 완료: 고정 {len(fixed_schedules)}개, 유연 {len(flexible_schedules)}개")
+    
+    return {
+        "fixedSchedules": fixed_schedules,
+        "flexibleSchedules": flexible_schedules
+    }
+
+# extract_schedule 함수에서 사용
 @app.post("/extract-schedule", response_model=ExtractScheduleResponse)
 async def extract_schedule(request: ScheduleRequest):
-    """
-    3중 API로 정확한 주소를 검색하는 일정 추출 API
-    우선순위: Foursquare → Kakao → Google
-    """
+    """3중 API로 정확한 주소를 검색하는 일정 추출 API"""
     start_time = time.time()
     logger.info(f"🎯 3중 API 일정 추출 시작: {request.voice_input}")
     
@@ -864,7 +1416,7 @@ async def extract_schedule(request: ScheduleRequest):
         location_start = time.time()
         enhanced_data = await asyncio.wait_for(
             enhance_locations_with_triple_api(schedule_data),
-            timeout=60  # 1분 타임아웃 (3개 API 순차 검색)
+            timeout=60  # 1분 타임아웃
         )
         logger.info(f"✅ 3중 API 위치 검색 완료: {time.time() - location_start:.2f}초")
         
@@ -893,7 +1445,7 @@ async def extract_schedule(request: ScheduleRequest):
                 timeout=15
             )
             
-            # 일정 간 관계 분석 (추가!)
+            # 일정 간 관계 분석
             enhanced_data = await asyncio.wait_for(
                 run_in_executor(
                     enhance_schedule_with_relationships,
@@ -912,19 +1464,13 @@ async def extract_schedule(request: ScheduleRequest):
         except Exception as e:
             logger.warning(f"⚠️ 기타 강화 작업 스킵: {e}")
         
-        # 🔥 5. 최종 데이터 정리
-        all_schedules = []
-        all_schedules.extend(enhanced_data.get("fixedSchedules", []))
-        all_schedules.extend(enhanced_data.get("flexibleSchedules", []))
+        # 🔥 5. 우선순위 정규화 (소수점 → 정수 변환)
+        logger.info("🔢 우선순위 정규화 시작")
+        enhanced_data = normalize_priorities(enhanced_data)
         
-        fixed_schedules = [
-            s for s in all_schedules 
-            if s.get("type") == "FIXED" and "startTime" in s and "endTime" in s
-        ]
-        flexible_schedules = [
-            s for s in all_schedules 
-            if s.get("type") != "FIXED" or "startTime" not in s or "endTime" not in s
-        ]
+        # 🔥 6. 최종 데이터 정리
+        fixed_schedules = enhanced_data.get("fixedSchedules", [])
+        flexible_schedules = enhanced_data.get("flexibleSchedules", [])
         
         final_data = {
             "fixedSchedules": fixed_schedules,
@@ -937,9 +1483,9 @@ async def extract_schedule(request: ScheduleRequest):
         
         # 결과 상세 로깅
         for i, schedule in enumerate(fixed_schedules):
-            logger.info(f"   🔒 고정 {i+1}: {schedule.get('name')} - {schedule.get('location')}")
+            logger.info(f"   🔒 고정 {i+1}: {schedule.get('name')} (우선순위: {schedule.get('priority')}) - {schedule.get('location')}")
         for i, schedule in enumerate(flexible_schedules):
-            logger.info(f"   🔄 유연 {i+1}: {schedule.get('name')} - {schedule.get('location')}")
+            logger.info(f"   🔄 유연 {i+1}: {schedule.get('name')} (우선순위: {schedule.get('priority')}) - {schedule.get('location')}")
         
         return ExtractScheduleResponse(**final_data)
             
