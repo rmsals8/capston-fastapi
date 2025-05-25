@@ -72,64 +72,244 @@ class AsyncGooglePlacesTool:
         self.default_timeout = 30
         self.max_retries = 2
         self.retry_delay = 1
-    
-    async def search_place_detailed_async(self, query: str, place_type: str = None) -> Optional[Dict]:
-        """비동기 장소 검색"""
-        try:
-            encoded_query = aiohttp.web.quote(query)
-            fields = "name,formatted_address,geometry,place_id,types,address_components"
-            url = f"https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input={encoded_query}&inputtype=textquery&fields={fields}&language=ko&key={self.api_key}"
+    async def search_place_detailed(self, query: str, place_type: str = None) -> Optional[Dict]:
+        """향상된 장소 검색 - 기존 메소드명 유지하면서 내부 로직 강화"""
+        self.logger.info(f"향상된 장소 검색 시작: '{query}', 타입: {place_type or '없음'}")
+        
+        # 1단계: 기본 검색 시도
+        result = await self._basic_place_search(query, place_type)
+        
+        if result and self.validate_address_quality(result.get('formatted_address', ''), query):
+            self.logger.info(f"1단계 검색 성공 (고품질): {result.get('name')}")
+            return result
+        
+        # 2단계: 자연어 분석 및 재검색
+        if "근처" in query or "인근" in query or "주변" in query:
+            self.logger.info("2단계: 자연어 분석 기반 재검색 시도")
             
+            # GPT로 장소와 카테고리 추출
+            extracted = self.extract_location_and_category(query)
+            
+            # 추출된 정확한 장소명으로 재검색
+            if extracted.get('location') != query:
+                improved_result = await self._basic_place_search(extracted['location'], place_type)
+                
+                if improved_result and self.validate_address_quality(improved_result.get('formatted_address', ''), extracted['location']):
+                    self.logger.info(f"2단계 검색 성공: {improved_result.get('name')}")
+                    return improved_result
+        
+        # 3단계: 주변 검색으로 대체
+        if result and result.get('latitude') and result.get('longitude'):
+            self.logger.info("3단계: 주변 검색으로 더 정확한 결과 찾기")
+            
+            # 기존 결과의 좌표를 기준으로 주변 검색
+            center_coords = (result['latitude'], result['longitude'])
+            
+            # 카테고리 추출
+            if place_type:
+                search_type = place_type
+                category = self._get_category_from_type(place_type)
+            else:
+                category = self._extract_category_from_query(query)
+                search_type = get_place_type(category) or "point_of_interest"
+            
+            nearby_places = self.search_nearby_with_validation(center_coords, category, search_type, 1000)
+            
+            if nearby_places:
+                # 가장 가까운 장소 선택
+                best_place = nearby_places[0]
+                self.logger.info(f"3단계 검색 성공 (주변 검색): {best_place.get('name')}")
+                return best_place
+        
+        # 4단계: 원본 결과라도 반환 (완전 실패 방지)
+        if result:
+            self.logger.info(f"원본 검색 결과 반환: {result.get('name')}")
+            return result
+        
+        self.logger.warning(f"모든 검색 단계 실패: '{query}'")
+        return None
+    
+    async def _basic_place_search(self, query: str, place_type: str = None) -> Optional[Dict]:
+        """기본 장소 검색 - 비동기 버전"""
+        try:
+            from urllib.parse import quote
+            import aiohttp
+            
+            # URL 인코딩
+            encoded_query = quote(query)
+            
+            # 기본 필드 설정
+            fields = "name,formatted_address,geometry,place_id,types,address_components,rating"
+            
+            # Places API 호출
+            url = f"https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input={encoded_query}&inputtype=textquery&fields={fields}&language=ko&region=kr&key={self.api_key}"
+            
+            # 장소 유형이 지정된 경우 추가
             if place_type:
                 url += f"&locationbias=type:{place_type}"
             
-            self.logger.info(f"비동기 Places API 요청: '{query}', 유형: {place_type or '없음'}")
+            self.logger.info(f"기본 Places API 요청: '{query}', 유형: {place_type or '없음'}")
             
-            # aiohttp를 사용한 비동기 HTTP 요청
-            timeout = aiohttp.ClientTimeout(total=self.default_timeout)
-            
-            for attempt in range(self.max_retries):
-                try:
-                    async with aiohttp.ClientSession(timeout=timeout) as session:
-                        async with session.get(url) as response:
-                            if response.status == 200:
-                                data = await response.json()
-                                
-                                if data['status'] == 'OK' and data.get('candidates'):
-                                    candidate = data['candidates'][0]
-                                    result = {
-                                        'name': candidate.get('name', query),
-                                        'formatted_address': candidate.get('formatted_address', ''),
-                                        'latitude': candidate['geometry']['location']['lat'],
-                                        'longitude': candidate['geometry']['location']['lng'],
-                                        'place_id': candidate.get('place_id', ''),
-                                        'types': candidate.get('types', [])
-                                    }
-                                    self.logger.info(f"비동기 검색 성공: {result['name']}")
-                                    return result
-                            
-                            # API 응답이 좋지 않으면 재시도
-                            if attempt < self.max_retries - 1:
-                                self.logger.warning(f"API 호출 실패 (시도 {attempt + 1}/{self.max_retries}), 재시도 중...")
-                                await asyncio.sleep(self.retry_delay)
-                                
-                except asyncio.TimeoutError:
-                    self.logger.warning(f"API 호출 timeout (시도 {attempt + 1}/{self.max_retries})")
-                    if attempt < self.max_retries - 1:
-                        await asyncio.sleep(self.retry_delay)
+            # requests 대신 aiohttp 사용
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        self.logger.warning(f"API 호출 실패: {response.status}")
+                        return None
+                    
+                    data = await response.json()
+                    
+                    if data['status'] == 'OK' and data.get('candidates') and len(data['candidates']) > 0:
+                        candidate = data['candidates'][0]
+                        
+                        # 주소 구성 요소를 사용하여 보다 구체적인 주소 생성
+                        address_components = candidate.get('address_components', [])
+                        formatted_address = candidate.get('formatted_address', '')
+                        
+                        # 한국 주소 형식으로 개선
+                        if address_components:
+                            improved_address = self._improve_korean_address(address_components, formatted_address)
+                            if improved_address:
+                                formatted_address = improved_address
+                        
+                        place_types = candidate.get('types', [])
+                        self.logger.info(f"기본 검색 결과: {candidate.get('name')}, 유형: {place_types}")
+                        
+                        return {
+                            'name': candidate.get('name', query),
+                            'formatted_address': formatted_address,
+                            'latitude': candidate['geometry']['location']['lat'],
+                            'longitude': candidate['geometry']['location']['lng'],
+                            'place_id': candidate.get('place_id', ''),
+                            'types': place_types,
+                            'rating': candidate.get('rating')
+                        }
                     else:
-                        self.logger.error(f"최대 재시도 횟수 초과: {query}")
+                        self.logger.warning(f"검색 결과 없음: {data['status']}")
                         return None
                         
-                except Exception as e:
-                    self.logger.error(f"API 호출 오류: {str(e)}")
-                    return None
-            
+        except Exception as e:
+            self.logger.error(f"기본 장소 검색 오류: {str(e)}")
             return None
+    
+    def _improve_korean_address(self, address_components: list, original_address: str) -> str:
+        """한국 주소 형식 개선 (paste.txt 로직 참조)"""
+        try:
+            address_parts = {}
+            for component in address_components:
+                for type in component.get('types', []):
+                    address_parts[type] = component.get('long_name')
+            
+            # 한국 주소 형식으로 구성
+            if 'country' in address_parts and address_parts['country'] == '대한민국':
+                if 'administrative_area_level_1' in address_parts:  # 시/도
+                    province = address_parts['administrative_area_level_1']
+                    if '서울' in province and '특별시' not in province:
+                        province = '서울특별시'
+                    
+                    detailed_address = province
+                    
+                    if 'sublocality_level_1' in address_parts:  # 구
+                        detailed_address += f" {address_parts['sublocality_level_1']}"
+                    
+                    if 'sublocality_level_2' in address_parts:  # 동
+                        detailed_address += f" {address_parts['sublocality_level_2']}"
+                    
+                    if 'premise' in address_parts or 'street_number' in address_parts:
+                        if 'route' in address_parts:  # 도로명
+                            detailed_address += f" {address_parts['route']}"
+                        
+                        if 'street_number' in address_parts:  # 건물번호
+                            detailed_address += f" {address_parts['street_number']}"
+                        
+                        if 'premise' in address_parts:  # 건물명/층
+                            detailed_address += f" {address_parts['premise']}"
+                    
+                    # 더 구체적인 주소가 생성되면 사용
+                    if len(detailed_address.split()) >= len(original_address.split()):
+                        return detailed_address
+            
+            return original_address
+        except Exception as e:
+            self.logger.error(f"한국 주소 개선 오류: {str(e)}")
+            return original_address
+    
+    def _get_category_from_type(self, place_type: str) -> str:
+        """place_type에서 카테고리명 추출"""
+        type_to_category = {
+            "restaurant": "식당",
+            "cafe": "카페", 
+            "shopping_mall": "쇼핑몰",
+            "hospital": "병원",
+            "university": "대학교",
+            "school": "학교",
+            "park": "공원",
+            "stadium": "경기장"
+        }
+        return type_to_category.get(place_type, "장소")
+    
+    def _extract_category_from_query(self, query: str) -> str:
+        """쿼리에서 카테고리 추출"""
+        query_lower = query.lower()
+        if any(word in query_lower for word in ["식당", "음식", "밥"]):
+            return "식당"
+        elif any(word in query_lower for word in ["카페", "커피"]):
+            return "카페"
+        elif any(word in query_lower for word in ["쇼핑", "마트"]):
+            return "쇼핑몰"
+        else:
+            return "장소"
+    
+    def search_nearby_detailed(self, query: str, location: str = "37.4980,127.0276", radius: int = 1000, place_type: str = None) -> Optional[Dict]:
+        """기존 메소드 유지 - 호환성을 위해"""
+        try:
+            # URL 인코딩
+            encoded_query = requests.utils.quote(query)
+            
+            # Nearby Search API 호출
+            url = f"https://maps.googleapis.com/maps/api/place/nearbysearch/json?location={location}&radius={radius}&keyword={encoded_query}&language=ko&key={self.api_key}"
+            
+            # 장소 유형이 지정된 경우 추가
+            if place_type:
+                url += f"&type={place_type}"
+            
+            self.logger.info(f"Nearby API 요청: '{query}', 위치: {location}, 반경: {radius}m, 유형: {place_type or '없음'}")
+            
+            response = requests.get(url, timeout=120)
+            if response.status_code != 200:
+                self.logger.warning(f"Nearby Places API 호출 실패: {response.status_code}")
+                return None
+            
+            data = response.json()
+            
+            if data['status'] == 'OK' and data.get('results') and len(data['results']) > 0:
+                # 결과 중 첫 번째 장소 선택
+                top_place = data['results'][0]
+                
+                # Place Details API를 통해 더 자세한 정보 가져오기
+                if top_place.get('place_id'):
+                    detailed_place = self.get_place_details(top_place.get('place_id'))
+                    if detailed_place:
+                        return detailed_place
+                
+                # 기본 정보 반환
+                return {
+                    'name': top_place.get('name', ''),
+                    'formatted_address': top_place.get('vicinity', ''),
+                    'latitude': top_place['geometry']['location']['lat'],
+                    'longitude': top_place['geometry']['location']['lng'],
+                    'place_id': top_place.get('place_id', ''),
+                    'types': top_place.get('types', [])
+                }
+            else:
+                self.logger.warning(f"주변 장소를 찾을 수 없음: {data['status']}")
+                return None
                 
         except Exception as e:
-            self.logger.error(f"비동기 장소 검색 중 오류 발생: {str(e)}")
+            self.logger.error(f"주변 장소 검색 중 오류 발생: {str(e)}")
             return None
+
 
 # 2. 동기 함수를 비동기로 래핑하는 유틸리티
 async def run_in_executor(func, *args, **kwargs):
@@ -809,9 +989,213 @@ class GooglePlacesTool:
         # 로깅 설정
         self.logger = logging.getLogger('google_places_tool')
         self.logger.setLevel(logging.INFO)
+        
+        # OpenAI 클라이언트 초기화 (주소 정제용)
+        self.openai_client = ChatOpenAI(
+            openai_api_key=OPENAI_API_KEY,
+            model_name="gpt-3.5-turbo",
+            temperature=0.1
+        )
+    
+    def extract_location_and_category(self, natural_language: str) -> dict:
+        """GPT를 활용한 장소와 카테고리 추출 (paste.txt에서 적용)"""
+        prompt = f"""
+다음 자연어에서 장소와 카테고리를 정확히 추출해주세요.
+
+JSON 형식으로만 응답:
+{{
+  "location": "정확한 장소명 (예: 서울역, 울산대학교, 강남역)",
+  "category": "카테고리명 (예: 식당, 카페, 쇼핑몰, 병원)",
+  "search_type": "Google Places API type (restaurant, cafe, shopping_mall, hospital, etc.)",
+  "radius": 적절한반경미터(500-2000)
+}}
+
+예시:
+"서울역에서 밥먹고 싶어" → {{"location": "서울역", "category": "식당", "search_type": "restaurant", "radius": 1000}}
+"울산대 근처 카페 가자" → {{"location": "울산대학교", "category": "카페", "search_type": "cafe", "radius": 800}}
+
+입력: "{natural_language}"
+"""
+
+        try:
+            self.logger.info(f"GPT로 장소/카테고리 추출 중: {natural_language}")
+            
+            response = self.openai_client.invoke([
+                {"role": "system", "content": "당신은 한국어 자연어에서 장소와 카테고리를 정확히 추출하는 전문가입니다. JSON 형식으로만 응답해주세요."},
+                {"role": "user", "content": prompt}
+            ])
+
+            content = response.content.strip()
+            self.logger.info(f"GPT 응답: {content}")
+
+            # JSON 파싱
+            if content.startswith("```json"):
+                content = content.replace("```json", "").replace("```", "").strip()
+            
+            extracted_data = json.loads(content)
+            return extracted_data
+            
+        except Exception as e:
+            self.logger.error(f"GPT 추출 실패: {str(e)}")
+            # 기본값 반환
+            return {
+                "location": natural_language,
+                "category": "장소",
+                "search_type": "point_of_interest",
+                "radius": 1000
+            }
+    
+    def validate_address_quality(self, address: str, place_name: str) -> bool:
+        """주소 품질 검증 (paste.txt 로직 적용)"""
+        if not address:
+            return False
+            
+        # 모호한 표현 체크
+        vague_terms = ["인근", "근처", "주변", "근방", "부근", "일대"]
+        if any(term in address for term in vague_terms):
+            self.logger.info(f"모호한 주소 감지: {address}")
+            return False
+        
+        # 한국 주소 형식 체크 (시/도 포함 여부)
+        korean_regions = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"]
+        has_region = any(region in address for region in korean_regions)
+        
+        # 주소 구성 요소 개수 체크 (최소 3개 이상의 의미있는 단어)
+        meaningful_parts = [part for part in address.split() if len(part) > 1]
+        has_enough_parts = len(meaningful_parts) >= 3
+        
+        quality_score = has_region + has_enough_parts
+        is_quality = quality_score >= 1
+        
+        self.logger.info(f"주소 품질 검증 - {address}: 지역포함={has_region}, 구성요소충분={has_enough_parts}, 품질점수={quality_score}, 통과={is_quality}")
+        return is_quality
+    
+    def search_nearby_with_validation(self, center_coords: tuple, category: str, search_type: str, radius: int = 1000) -> list:
+        """주변 검색 및 검증 (paste.txt의 _search_nearby_places 로직 적용)"""
+        self.logger.info(f"주변 검색 시작: 중심점={center_coords}, 카테고리={category}, 타입={search_type}, 반경={radius}m")
+        
+        all_places = []
+        lat, lng = center_coords
+        
+        # 1. 타입 기반 검색
+        try:
+            url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+            params = {
+                'location': f"{lat},{lng}",
+                'radius': radius,
+                'type': search_type,
+                'language': 'ko',
+                'key': self.api_key
+            }
+            
+            self.logger.info(f"타입 기반 주변 검색: {search_type}")
+            response = requests.get(url, params=params, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'OK':
+                    results = data.get('results', [])
+                    self.logger.info(f"타입 검색 결과: {len(results)}개")
+                    
+                    for place in results:
+                        place_info = self.parse_nearby_place_result(place, center_coords)
+                        if place_info:
+                            all_places.append(place_info)
+        except Exception as e:
+            self.logger.error(f"타입 기반 검색 오류: {str(e)}")
+        
+        # 2. 키워드 기반 검색
+        try:
+            params = {
+                'location': f"{lat},{lng}",
+                'radius': radius,
+                'keyword': category,
+                'type': search_type,
+                'language': 'ko',
+                'key': self.api_key
+            }
+            
+            self.logger.info(f"키워드 기반 주변 검색: {category}")
+            response = requests.get(url, params=params, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'OK':
+                    results = data.get('results', [])
+                    self.logger.info(f"키워드 검색 결과: {len(results)}개")
+                    
+                    for place in results:
+                        place_info = self.parse_nearby_place_result(place, center_coords)
+                        if place_info:
+                            all_places.append(place_info)
+        except Exception as e:
+            self.logger.error(f"키워드 기반 검색 오류: {str(e)}")
+        
+        # 중복 제거 (place_id 기준)
+        unique_places = self.remove_duplicate_places(all_places)
+        
+        # 거리순 정렬
+        unique_places.sort(key=lambda x: x.get('distance', float('inf')))
+        
+        self.logger.info(f"주변 검색 완료: {len(unique_places)}개 고유 장소")
+        return unique_places[:5]  # 상위 5개만 반환
+    
+    def parse_nearby_place_result(self, place: dict, center_coords: tuple) -> dict:
+        """Google Places 결과 파싱 (paste.txt 로직 적용)"""
+        try:
+            location = place['geometry']['location']
+            place_lat, place_lng = location['lat'], location['lng']
+            
+            # 거리 계산 (하버사인 공식)
+            distance = self.calculate_distance(center_coords[0], center_coords[1], place_lat, place_lng)
+            
+            return {
+                'name': place.get('name', ''),
+                'formatted_address': place.get('vicinity', ''),
+                'latitude': place_lat,
+                'longitude': place_lng,
+                'place_id': place.get('place_id', ''),
+                'types': place.get('types', []),
+                'rating': place.get('rating'),
+                'distance': distance
+            }
+        except Exception as e:
+            self.logger.error(f"장소 결과 파싱 오류: {str(e)}")
+            return None
+    
+    def calculate_distance(self, lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+        """거리 계산 (하버사인 공식) - paste.txt에서 적용"""
+        import math
+        
+        earth_radius = 6371000  # 미터
+        lat1_rad = math.radians(lat1)
+        lat2_rad = math.radians(lat2)
+        delta_lat_rad = math.radians(lat2 - lat1)
+        delta_lng_rad = math.radians(lng2 - lng1)
+
+        a = (math.sin(delta_lat_rad / 2) * math.sin(delta_lat_rad / 2) +
+             math.cos(lat1_rad) * math.cos(lat2_rad) *
+             math.sin(delta_lng_rad / 2) * math.sin(delta_lng_rad / 2))
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+        return earth_radius * c
+    
+    def remove_duplicate_places(self, places: list) -> list:
+        """중복 제거 (place_id 기준) - paste.txt에서 적용"""
+        seen = set()
+        unique_places = []
+
+        for place in places:
+            place_id = place.get('place_id', '')
+            if place_id and place_id not in seen:
+                seen.add(place_id)
+                unique_places.append(place)
+
+        self.logger.info(f"중복 제거: {len(places)}개 → {len(unique_places)}개")
+        return unique_places
     
     def build_search_query(self, query: str, place_type: str = None, region: str = None) -> str:
-        """검색 쿼리 최적화 빌더"""
+        """검색 쿼리 최적화 빌더 - 기존 메소드 유지"""
         components = []
         
         # 지역 정보가 있으면 추가 (query에 이미 포함되어 있지 않은 경우)
@@ -829,7 +1213,7 @@ class GooglePlacesTool:
     
     @lru_cache(maxsize=100)
     def search_place_cached(self, query: str, place_type: str = None) -> Optional[Dict]:
-        """캐싱을 지원하는 장소 검색 함수"""
+        """캐싱을 지원하는 장소 검색 함수 - 기존 메소드 유지"""
         cache_key = f"{query}_{place_type}"
         
         # 캐시에 있으면 반환
@@ -846,104 +1230,65 @@ class GooglePlacesTool:
             self.logger.info(f"검색 결과 캐싱: '{cache_key}'")
         
         return result
+ 
+ 
     
     async def search_place_detailed(self, query: str, place_type: str = None) -> Optional[Dict]:
-        """더 상세한 장소 검색 기능 - 장소 유형 지원 (비동기 버전)"""
-        try:
-            from urllib.parse import quote
-            import aiohttp
+        """향상된 장소 검색 - 비동기 버전"""
+        self.logger.info(f"향상된 장소 검색 시작: '{query}', 타입: {place_type or '없음'}")
+        
+        # 1단계: 기본 검색 시도
+        result = await self._basic_place_search(query, place_type)
+        
+        if result and self.validate_address_quality(result.get('formatted_address', ''), query):
+            self.logger.info(f"1단계 검색 성공 (고품질): {result.get('name')}")
+            return result
+        
+        # 2단계: 자연어 분석 및 재검색
+        if "근처" in query or "인근" in query or "주변" in query:
+            self.logger.info("2단계: 자연어 분석 기반 재검색 시도")
             
-            # URL 인코딩
-            encoded_query = quote(query)
+            # GPT로 장소와 카테고리 추출 (동기 함수이므로 그대로)
+            extracted = self.extract_location_and_category(query)
             
-            # 기본 필드 설정
-            fields = "name,formatted_address,geometry,place_id,types,address_components"
+            # 추출된 정확한 장소명으로 재검색
+            if extracted.get('location') != query:
+                improved_result = await self._basic_place_search(extracted['location'], place_type)
+                
+                if improved_result and self.validate_address_quality(improved_result.get('formatted_address', ''), extracted['location']):
+                    self.logger.info(f"2단계 검색 성공: {improved_result.get('name')}")
+                    return improved_result
+        
+        # 3단계: 주변 검색으로 대체
+        if result and result.get('latitude') and result.get('longitude'):
+            self.logger.info("3단계: 주변 검색으로 더 정확한 결과 찾기")
             
-            # Places API 호출 - 유형 매개변수 추가
-            url = f"https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input={encoded_query}&inputtype=textquery&fields={fields}&language=ko&key={self.api_key}"
+            # 기존 결과의 좌표를 기준으로 주변 검색
+            center_coords = (result['latitude'], result['longitude'])
             
-            # 장소 유형이 지정된 경우 추가
+            # 카테고리 추출
             if place_type:
-                url += f"&locationbias=type:{place_type}"
+                search_type = place_type
+                category = self._get_category_from_type(place_type)
+            else:
+                category = self._extract_category_from_query(query)
+                search_type = get_place_type(category) or "point_of_interest"
             
-            self.logger.info(f"Places API 요청: '{query}', 유형: {place_type or '없음'}")
+            nearby_places = await self.search_nearby_with_validation_async(center_coords, category, search_type, 1000)
             
-            # 🔥 여기가 핵심 변경! requests 대신 aiohttp
-            timeout = aiohttp.ClientTimeout(total=30)  # 30초로 단축
-            
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        self.logger.warning(f"Google Places API 호출 실패: {response.status}")
-                        return None
-                    
-                    data = await response.json()
-                    
-                    # 🔥 여기서부터는 기존 코드와 완전히 동일!
-                    if data['status'] == 'OK' and data.get('candidates') and len(data['candidates']) > 0:
-                        candidate = data['candidates'][0]
-                        
-                        # 주소 구성 요소를 사용하여 보다 구체적인 주소 생성
-                        address_components = candidate.get('address_components', [])
-                        formatted_address = candidate.get('formatted_address', '')
-                        
-                        # 주소 구성 요소가 있으면 더 구체적인 주소 생성 시도
-                        if address_components:
-                            address_parts = {}
-                            for component in address_components:
-                                for type in component.get('types', []):
-                                    address_parts[type] = component.get('long_name')
-                            
-                            # 한국 주소 형식으로 구성
-                            if 'country' in address_parts and address_parts['country'] == '대한민국':
-                                if 'administrative_area_level_1' in address_parts:  # 시/도
-                                    province = address_parts['administrative_area_level_1']
-                                    if '서울' in province and '특별시' not in province:
-                                        province = '서울특별시'
-                                    
-                                    detailed_address = province
-                                    
-                                    if 'sublocality_level_1' in address_parts:  # 구
-                                        detailed_address += f" {address_parts['sublocality_level_1']}"
-                                    
-                                    if 'sublocality_level_2' in address_parts:  # 동
-                                        detailed_address += f" {address_parts['sublocality_level_2']}"
-                                    
-                                    if 'premise' in address_parts or 'street_number' in address_parts:
-                                        if 'route' in address_parts:  # 도로명
-                                            detailed_address += f" {address_parts['route']}"
-                                        
-                                        if 'street_number' in address_parts:  # 건물번호
-                                            detailed_address += f" {address_parts['street_number']}"
-                                        
-                                        if 'premise' in address_parts:  # 건물명/층
-                                            detailed_address += f" {address_parts['premise']}"
-                                    
-                                    # 더 구체적인 주소가 생성되면 사용
-                                    if len(detailed_address.split()) >= len(formatted_address.split()):
-                                        formatted_address = detailed_address
-                        
-                        place_types = candidate.get('types', [])
-                        self.logger.info(f"장소 찾음: {candidate.get('name')}, 유형: {place_types}")
-                        
-                        return {
-                            'name': candidate.get('name', query),
-                            'formatted_address': formatted_address,
-                            'latitude': candidate['geometry']['location']['lat'],
-                            'longitude': candidate['geometry']['location']['lng'],
-                            'place_id': candidate.get('place_id', ''),
-                            'types': place_types
-                        }
-                    else:
-                        self.logger.warning(f"장소를 찾을 수 없음: {data['status']}")
-                        return None
-                        
-        except asyncio.TimeoutError:
-            self.logger.error(f"장소 검색 timeout: {query}")
-            return None
-        except Exception as e:
-            self.logger.error(f"장소 검색 중 오류 발생: {str(e)}")
-            return None
+            if nearby_places:
+                # 가장 가까운 장소 선택
+                best_place = nearby_places[0]
+                self.logger.info(f"3단계 검색 성공 (주변 검색): {best_place.get('name')}")
+                return best_place
+        
+        # 4단계: 원본 결과라도 반환 (완전 실패 방지)
+        if result:
+            self.logger.info(f"원본 검색 결과 반환: {result.get('name')}")
+            return result
+        
+        self.logger.warning(f"모든 검색 단계 실패: '{query}'")
+        return None
     
     def search_nearby_detailed(self, query: str, location: str = "37.4980,127.0276", radius: int = 1000, place_type: str = None) -> Optional[Dict]:
         """개선된 주변 장소 검색 기능 - 장소 유형 지원"""
@@ -996,7 +1341,7 @@ class GooglePlacesTool:
     
     @lru_cache(maxsize=100)
     def get_place_details(self, place_id: str) -> Optional[Dict]:
-        """Place ID를 사용하여 장소의 상세 정보를 가져옵니다."""
+        """기존 메소드 유지 - Place ID를 사용하여 장소의 상세 정보를 가져옵니다."""
         if not place_id:
             self.logger.warning("Place ID가 제공되지 않았습니다.")
             return None
