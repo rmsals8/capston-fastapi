@@ -95,11 +95,23 @@ KOREA_REGIONS = {
              "의령군", "진주시", "창녕군", "창원시", "통영시", "하동군", "함안군", "함양군", "합천군"},
     "제주특별자치도": {"서귀포시", "제주시"}
 }
-
+def clean_korean_text(text: str) -> str:
+    import re
+    cleaned = re.sub(r'[^\w\s가-힣ㄱ-ㅎㅏ-ㅣ.,()-]', '', text)
+    return cleaned.strip()
 # ----- 모델 정의 -----
 class ScheduleRequest(BaseModel):
     voice_input: str
 
+class UnicodeJSONResponse(JSONResponse):
+    def render(self, content) -> bytes:
+        return json.dumps(
+            content,
+            ensure_ascii=False,  # 👈 핵심! 한글을 유니코드 그대로 출력
+            separators=(',', ':'),
+            indent=None
+        ).encode('utf-8')  # 👈 UTF-8로 인코딩
+    
 class FixedSchedule(BaseModel):
     id: str
     name: str
@@ -142,6 +154,20 @@ class PlaceResult(BaseModel):
     rating: Optional[float] = None
 
 
+def safe_parse_json(json_str):
+    """안전한 JSON 파싱 - 한글 지원"""
+    try:
+        if isinstance(json_str, str):
+            # 한글 인코딩 문제 해결
+            return json.loads(json_str, strict=False)
+        else:
+            return json_str
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        logger.error(f"JSON 파싱 오류 (한글 포함): {str(e)}")
+        return {
+            "fixedSchedules": [],
+            "flexibleSchedules": []
+        }
 
 def normalize_priorities(schedules_data: Dict[str, Any]) -> Dict[str, Any]:
     """우선순위를 정수로 정규화"""
@@ -1387,14 +1413,18 @@ def normalize_priorities(schedules_data: Dict[str, Any]) -> Dict[str, Any]:
         "flexibleSchedules": flexible_schedules
     }
 
+
+
 # extract_schedule 함수에서 사용
-@app.post("/extract-schedule", response_model=ExtractScheduleResponse)
+@app.post("/extract-schedule")
 async def extract_schedule(request: ScheduleRequest):
-    """3중 API로 정확한 주소를 검색하는 일정 추출 API"""
+    """3중 API로 정확한 주소를 검색하는 일정 추출 API - 한글 인코딩 지원"""
     start_time = time.time()
     logger.info(f"🎯 3중 API 일정 추출 시작: {request.voice_input}")
     
     try:
+        # ... 기존 로직 동일 ...
+        
         # 🔥 1. 기본 일정 추출 (LLM 호출)
         llm_start = time.time()
         chain = create_schedule_chain()
@@ -1407,20 +1437,23 @@ async def extract_schedule(request: ScheduleRequest):
             logger.info(f"✅ LLM 추출 완료: {time.time() - llm_start:.2f}초")
         except asyncio.TimeoutError:
             logger.error("❌ LLM 호출 타임아웃")
-            return ExtractScheduleResponse(fixedSchedules=[], flexibleSchedules=[])
+            return UnicodeJSONResponse(
+                content={"fixedSchedules": [], "flexibleSchedules": []},
+                status_code=200
+            )
         
         # 🔥 2. 결과 파싱
         schedule_data = result if isinstance(result, dict) else safe_parse_json(str(result))
         
-        # 🔥 3. 3중 API 위치 정보 보강 (가장 중요!)
+        # 🔥 3. 3중 API 위치 정보 보강
         location_start = time.time()
         enhanced_data = await asyncio.wait_for(
             enhance_locations_with_triple_api(schedule_data),
-            timeout=60  # 1분 타임아웃
+            timeout=60
         )
         logger.info(f"✅ 3중 API 위치 검색 완료: {time.time() - location_start:.2f}초")
         
-        # 🔥 4. 모든 스케줄러 모듈 활용 (기타 강화 작업들)
+        # 🔥 4. 모든 스케줄러 모듈 활용
         try:
             # 시간 추론
             chains = create_enhancement_chain()
@@ -1464,13 +1497,31 @@ async def extract_schedule(request: ScheduleRequest):
         except Exception as e:
             logger.warning(f"⚠️ 기타 강화 작업 스킵: {e}")
         
-        # 🔥 5. 우선순위 정규화 (소수점 → 정수 변환)
+        # 🔥 5. 우선순위 정규화
         logger.info("🔢 우선순위 정규화 시작")
         enhanced_data = normalize_priorities(enhanced_data)
         
         # 🔥 6. 최종 데이터 정리
         fixed_schedules = enhanced_data.get("fixedSchedules", [])
         flexible_schedules = enhanced_data.get("flexibleSchedules", [])
+        
+        # 한글 데이터 정제 (특수문자 제거)
+        def clean_korean_text(text: str) -> str:
+            """한글 텍스트 정제"""
+            if not text or not isinstance(text, str):
+                return ""
+            # 불필요한 특수문자 제거하되 한글은 유지
+            import re
+            # 한글, 영문, 숫자, 공백, 기본 특수문자만 허용
+            cleaned = re.sub(r'[^\w\s가-힣ㄱ-ㅎㅏ-ㅣ.,()-]', '', text)
+            return cleaned.strip()
+        
+        # 모든 스케줄 데이터의 한글 텍스트 정제
+        for schedule in fixed_schedules + flexible_schedules:
+            if schedule.get("name"):
+                schedule["name"] = clean_korean_text(schedule["name"])
+            if schedule.get("location"):
+                schedule["location"] = clean_korean_text(schedule["location"])
         
         final_data = {
             "fixedSchedules": fixed_schedules,
@@ -1481,19 +1532,52 @@ async def extract_schedule(request: ScheduleRequest):
         logger.info(f"🎉 3중 API 전체 처리 완료: {total_time:.2f}초")
         logger.info(f"   📊 결과: 고정 {len(fixed_schedules)}개, 유연 {len(flexible_schedules)}개")
         
-        # 결과 상세 로깅
+        # 결과 상세 로깅 (한글 확인)
         for i, schedule in enumerate(fixed_schedules):
             logger.info(f"   🔒 고정 {i+1}: {schedule.get('name')} (우선순위: {schedule.get('priority')}) - {schedule.get('location')}")
         for i, schedule in enumerate(flexible_schedules):
             logger.info(f"   🔄 유연 {i+1}: {schedule.get('name')} (우선순위: {schedule.get('priority')}) - {schedule.get('location')}")
         
-        return ExtractScheduleResponse(**final_data)
+        # 한글을 깨뜨리지 않는 JSON 응답
+        return UnicodeJSONResponse(content=final_data, status_code=200)
             
     except Exception as e:
         logger.error(f"❌ 전체 처리 오류: {str(e)}")
-        return ExtractScheduleResponse(fixedSchedules=[], flexibleSchedules=[])
+        return UnicodeJSONResponse(
+            content={"fixedSchedules": [], "flexibleSchedules": []},
+            status_code=200
+        )
 
 # 서버 시작
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8081, reload=True)
+    
+    # UTF-8 인코딩으로 서버 시작
+    uvicorn.run(
+        "app:app", 
+        host="0.0.0.0", 
+        port=8081, 
+        reload=True,
+        # 한글 지원을 위한 추가 설정
+        access_log=True,
+        log_config={
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "default": {
+                    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                },
+            },
+            "handlers": {
+                "default": {
+                    "formatter": "default",
+                    "class": "logging.StreamHandler",
+                    "stream": "ext://sys.stdout",
+                },
+            },
+            "root": {
+                "level": "INFO",
+                "handlers": ["default"],
+            },
+        }
+    )
