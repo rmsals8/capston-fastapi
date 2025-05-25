@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException, Body
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
@@ -16,6 +17,9 @@ from dotenv import load_dotenv
 from geopy.distance import geodesic
 import math
 import random
+import logging
+import aiohttp
+import asyncio
 from functools import lru_cache
 from fastapi.middleware.cors import CORSMiddleware
 from scheduler.utils import detect_and_resolve_time_conflicts
@@ -30,6 +34,7 @@ from scheduler import (
 # 환경 변수 로드
 load_dotenv()
 
+logger = logging.getLogger(__name__)
 # API 키 설정 (실제 운영 환경에서는 환경 변수에서 불러오는 것이 좋습니다)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") 
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
@@ -49,6 +54,354 @@ app.add_middleware(
 )
 
 # ----- 모델 정의 (일정 추출 API) -----
+async def run_sync_in_thread(func, *args, **kwargs):
+    """동기 함수를 별도 스레드에서 비동기로 실행"""
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor() as executor:
+        return await loop.run_in_executor(executor, func, *args, **kwargs)
+
+class AsyncGooglePlacesTool:
+    """비동기 Google Places API 클라이언트"""
+    
+    def __init__(self, api_key=None):
+        self.api_key = api_key or GOOGLE_MAPS_API_KEY
+        if not self.api_key:
+            raise ValueError("Google Maps API 키가 필요합니다.")
+        self.search_cache = {}
+        self.logger = logging.getLogger('async_google_places_tool')
+        self.default_timeout = 30
+        self.max_retries = 2
+        self.retry_delay = 1
+    
+    async def search_place_detailed_async(self, query: str, place_type: str = None) -> Optional[Dict]:
+        """비동기 장소 검색"""
+        try:
+            encoded_query = aiohttp.web.quote(query)
+            fields = "name,formatted_address,geometry,place_id,types,address_components"
+            url = f"https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input={encoded_query}&inputtype=textquery&fields={fields}&language=ko&key={self.api_key}"
+            
+            if place_type:
+                url += f"&locationbias=type:{place_type}"
+            
+            self.logger.info(f"비동기 Places API 요청: '{query}', 유형: {place_type or '없음'}")
+            
+            # aiohttp를 사용한 비동기 HTTP 요청
+            timeout = aiohttp.ClientTimeout(total=self.default_timeout)
+            
+            for attempt in range(self.max_retries):
+                try:
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
+                        async with session.get(url) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                
+                                if data['status'] == 'OK' and data.get('candidates'):
+                                    candidate = data['candidates'][0]
+                                    result = {
+                                        'name': candidate.get('name', query),
+                                        'formatted_address': candidate.get('formatted_address', ''),
+                                        'latitude': candidate['geometry']['location']['lat'],
+                                        'longitude': candidate['geometry']['location']['lng'],
+                                        'place_id': candidate.get('place_id', ''),
+                                        'types': candidate.get('types', [])
+                                    }
+                                    self.logger.info(f"비동기 검색 성공: {result['name']}")
+                                    return result
+                            
+                            # API 응답이 좋지 않으면 재시도
+                            if attempt < self.max_retries - 1:
+                                self.logger.warning(f"API 호출 실패 (시도 {attempt + 1}/{self.max_retries}), 재시도 중...")
+                                await asyncio.sleep(self.retry_delay)
+                                
+                except asyncio.TimeoutError:
+                    self.logger.warning(f"API 호출 timeout (시도 {attempt + 1}/{self.max_retries})")
+                    if attempt < self.max_retries - 1:
+                        await asyncio.sleep(self.retry_delay)
+                    else:
+                        self.logger.error(f"최대 재시도 횟수 초과: {query}")
+                        return None
+                        
+                except Exception as e:
+                    self.logger.error(f"API 호출 오류: {str(e)}")
+                    return None
+            
+            return None
+                
+        except Exception as e:
+            self.logger.error(f"비동기 장소 검색 중 오류 발생: {str(e)}")
+            return None
+
+# 2. 동기 함수를 비동기로 래핑하는 유틸리티
+async def run_in_executor(func, *args, **kwargs):
+    """동기 함수를 비동기로 실행"""
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor() as executor:
+        return await loop.run_in_executor(executor, func, *args, **kwargs)
+
+# 3. 비동기 위치 정보 보강 함수
+async def enhance_location_data_async(schedule_data: Dict) -> Dict:
+    """비동기 위치 정보 보강"""
+    logger.info("비동기 위치 정보 보강 시작...")
+    
+    try:
+        places_tool = AsyncGooglePlacesTool()
+        enhanced_data = json.loads(json.dumps(schedule_data))
+        
+        # 병렬 처리를 위한 태스크 리스트
+        tasks = []
+        
+        # 고정 일정 처리 (최대 5개, 병렬 처리)
+        fixed_schedules = enhanced_data.get("fixedSchedules", [])[:5]
+        
+        async def process_fixed_schedule(schedule):
+            """개별 고정 일정 처리"""
+            place_name = schedule.get("name", "")
+            if not place_name:
+                return schedule
+            
+            try:
+                place_info = await places_tool.search_place_detailed_async(place_name)
+                
+                if place_info and place_info.get("formatted_address"):
+                    schedule["location"] = place_info["formatted_address"]
+                    schedule["latitude"] = place_info["latitude"]
+                    schedule["longitude"] = place_info["longitude"]
+                    logger.info(f"비동기 위치 정보 업데이트 성공: {place_name}")
+                else:
+                    # fallback 사용
+                    category = get_simple_category(place_name)
+                    fallback_locations = {
+                        "식당": {"latitude": 37.5665, "longitude": 126.9780, "address": "서울특별시 중구"},
+                        "카페": {"latitude": 37.5665, "longitude": 126.9780, "address": "서울특별시 중구"},
+                        "대학교": {"latitude": 37.5665, "longitude": 126.9780, "address": "서울특별시"},
+                    }
+                    
+                    if category in fallback_locations:
+                        fallback = fallback_locations[category]
+                        schedule["latitude"] = fallback["latitude"]
+                        schedule["longitude"] = fallback["longitude"]
+                        logger.info(f"fallback 위치 사용: {place_name}")
+                        
+            except Exception as e:
+                logger.error(f"비동기 장소 검색 오류: {place_name}, {str(e)}")
+            
+            return schedule
+        
+        # 모든 고정 일정을 병렬로 처리
+        if fixed_schedules:
+            tasks = [process_fixed_schedule(schedule) for schedule in fixed_schedules]
+            
+            # asyncio.gather로 병렬 실행, timeout 적용
+            try:
+                processed_schedules = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True), 
+                    timeout=120  # 2분 제한
+                )
+                
+                # 결과 적용
+                for i, result in enumerate(processed_schedules):
+                    if not isinstance(result, Exception):
+                        enhanced_data["fixedSchedules"][i] = result
+                        
+            except asyncio.TimeoutError:
+                logger.warning("위치 정보 보강 시간 초과, 기본값 사용")
+        
+        # 유연 일정은 간단하게 처리 (fallback만 사용)
+        flexible_schedules = enhanced_data.get("flexibleSchedules", [])
+        fallback_locations = {
+            "식당": {"latitude": 37.5665, "longitude": 126.9780, "address": "서울특별시 중구"},
+            "카페": {"latitude": 37.5665, "longitude": 126.9780, "address": "서울특별시 중구"},
+            "대학교": {"latitude": 37.5665, "longitude": 126.9780, "address": "서울특별시"},
+        }
+        
+        for schedule in flexible_schedules:
+            category = get_simple_category(schedule.get("name", ""))
+            if category in fallback_locations:
+                fallback = fallback_locations[category]
+                schedule["latitude"] = fallback["latitude"]
+                schedule["longitude"] = fallback["longitude"]
+                schedule["location"] = fallback["address"]
+        
+        logger.info("비동기 위치 정보 보강 완료")
+        return enhanced_data
+        
+    except Exception as e:
+        logger.error(f"비동기 위치 정보 보강 실패: {str(e)}")
+        return schedule_data
+
+def get_simple_category(place_name: str) -> str:
+    """간단한 카테고리 분류"""
+    name_lower = place_name.lower()
+    if any(word in name_lower for word in ["식당", "음식", "레스토랑"]):
+        return "식당"
+    elif any(word in name_lower for word in ["카페", "커피"]):
+        return "카페"
+    elif any(word in name_lower for word in ["대학", "학교"]):
+        return "대학교"
+    else:
+        return "기본"
+
+# 4. 비동기 LLM 체인 처리
+async def process_llm_chain_async(chain, input_data):
+    """LLM 체인을 비동기로 처리"""
+    try:
+        # LLM 호출을 별도 스레드에서 실행 (동기 API이므로)
+        result = await run_in_executor(
+            lambda: chain.invoke(input_data)
+        )
+        return result
+    except Exception as e:
+        logger.error(f"비동기 LLM 처리 오류: {str(e)}")
+        raise e
+class ScheduleRequest(BaseModel):
+    voice_input: str
+# 5. 메인 비동기 처리 함수
+async def process_schedule_with_timeout_async(request: ScheduleRequest) -> Dict[str, Any]:
+    """비동기로 전체 일정 처리"""
+    logger.info("비동기 일정 처리 시작")
+    
+    try:
+        # 1. LLM 체인 생성 및 실행 (재시도 로직 포함)
+        chain = create_schedule_chain()
+        result = None
+        
+        for attempt in range(2):
+            try:
+                # LLM 호출을 비동기로 처리 (timeout 적용)
+                result = await asyncio.wait_for(
+                    process_llm_chain_async(chain, {"input": request.voice_input}),
+                    timeout=60  # 1분 제한
+                )
+                break
+            except asyncio.TimeoutError:
+                logger.warning(f"LLM 호출 timeout (시도 {attempt + 1}/2)")
+                if attempt == 1:
+                    raise Exception("LLM 호출 최종 실패")
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.warning(f"LLM 호출 실패 (시도 {attempt + 1}/2): {str(e)}")
+                if attempt == 1:
+                    raise e
+                await asyncio.sleep(1)
+        
+        # 2. 결과 파싱
+        if isinstance(result, str):
+            json_match = re.search(r'({[\s\S]*})', result)
+            if json_match:
+                schedule_data = safe_parse_json(json_match.group(1))
+            else:
+                schedule_data = safe_parse_json(result)
+        else:
+            schedule_data = result
+        
+        # 3. 병렬 처리를 위한 태스크 생성
+        tasks = []
+        
+        # 시간 추론 태스크
+        async def apply_time_inference_async():
+            try:
+                enhancement_chains = create_enhancement_chain()
+                return await run_in_executor(
+                    apply_time_inference,
+                    enhancement_chains["time_chain"],
+                    request.voice_input,
+                    schedule_data
+                )
+            except Exception as e:
+                logger.warning(f"시간 추론 실패: {str(e)}")
+                return schedule_data
+        
+        # 우선순위 분석 태스크
+        async def apply_priorities_async(schedule_data_with_time):
+            try:
+                enhancement_chains = create_enhancement_chain()
+                return await run_in_executor(
+                    apply_priorities,
+                    enhancement_chains["priority_chain"],
+                    request.voice_input,
+                    schedule_data_with_time
+                )
+            except Exception as e:
+                logger.warning(f"우선순위 분석 실패: {str(e)}")
+                return schedule_data_with_time
+        
+        # 4. 단계별 비동기 처리
+        try:
+            # 시간 추론
+            schedule_data_with_time = await asyncio.wait_for(
+                apply_time_inference_async(),
+                timeout=60  # 1분 제한
+            )
+        except asyncio.TimeoutError:
+            logger.warning("시간 추론 timeout, 원본 데이터 사용")
+            schedule_data_with_time = schedule_data
+        
+        try:
+            # 우선순위 분석
+            enhanced_schedule_data = await asyncio.wait_for(
+                apply_priorities_async(schedule_data_with_time),
+                timeout=60  # 1분 제한
+            )
+        except asyncio.TimeoutError:
+            logger.warning("우선순위 분석 timeout, 이전 단계 데이터 사용")
+            enhanced_schedule_data = schedule_data_with_time
+        
+        try:
+            # 충돌 해결 (동기 함수를 비동기로 실행)
+            schedule_data_without_conflicts = await asyncio.wait_for(
+                run_in_executor(detect_and_resolve_time_conflicts, enhanced_schedule_data),
+                timeout=60  # 1분 제한
+            )
+        except asyncio.TimeoutError:
+            logger.warning("충돌 해결 timeout, 이전 단계 데이터 사용")
+            schedule_data_without_conflicts = enhanced_schedule_data
+        
+        try:
+            # 관계 분석 (동기 함수를 비동기로 실행)
+            final_enhanced_data = await asyncio.wait_for(
+                run_in_executor(
+                    enhance_schedule_with_relationships,
+                    request.voice_input,
+                    schedule_data_without_conflicts
+                ),
+                timeout=60  # 1분 제한
+            )
+        except asyncio.TimeoutError:
+            logger.warning("관계 분석 timeout, 이전 단계 데이터 사용")
+            final_enhanced_data = schedule_data_without_conflicts
+        
+        try:
+            # 위치 정보 보강 (비동기 함수)
+            location_enhanced_data = await asyncio.wait_for(
+                enhance_location_data_async(final_enhanced_data),
+                timeout=120  # 2분 제한
+            )
+        except asyncio.TimeoutError:
+            logger.warning("위치 정보 보강 timeout, 이전 단계 데이터 사용")
+            location_enhanced_data = final_enhanced_data
+        
+        # 5. 최종 데이터 정리
+        all_schedules = []
+        all_schedules.extend(location_enhanced_data.get("fixedSchedules", []))
+        all_schedules.extend(location_enhanced_data.get("flexibleSchedules", []))
+        
+        fixed_schedules = [s for s in all_schedules if s.get("type") == "FIXED" and "startTime" in s and "endTime" in s]
+        flexible_schedules = [s for s in all_schedules if s.get("type") != "FIXED" or "startTime" not in s or "endTime" not in s]
+        
+        final_data = location_enhanced_data.copy()
+        final_data["fixedSchedules"] = fixed_schedules
+        final_data["flexibleSchedules"] = flexible_schedules
+        
+        logger.info("비동기 일정 처리 완료")
+        return final_data
+        
+    except Exception as e:
+        logger.error(f"비동기 전체 처리 실패: {str(e)}")
+        # 기본 응답 반환
+        return {
+            "fixedSchedules": [],
+            "flexibleSchedules": []
+        }
 class GoogleMapsDirectionsTool:
     """Google Maps Directions API를 사용하여 실제 경로 정보를 검색하는 도구"""
     
@@ -208,8 +561,7 @@ class GoogleMapsDirectionsTool:
             "overview_polyline": directions["overview_polyline"]
         }
 # 입력 모델 정의
-class ScheduleRequest(BaseModel):
-    voice_input: str
+
 
 # 일정 출력 모델 정의
 class FixedSchedule(BaseModel):
@@ -495,11 +847,14 @@ class GooglePlacesTool:
         
         return result
     
-    def search_place_detailed(self, query: str, place_type: str = None) -> Optional[Dict]:
-        """더 상세한 장소 검색 기능 - 장소 유형 지원"""
+    async def search_place_detailed(self, query: str, place_type: str = None) -> Optional[Dict]:
+        """더 상세한 장소 검색 기능 - 장소 유형 지원 (비동기 버전)"""
         try:
+            from urllib.parse import quote
+            import aiohttp
+            
             # URL 인코딩
-            encoded_query = requests.utils.quote(query)
+            encoded_query = quote(query)
             
             # 기본 필드 설정
             fields = "name,formatted_address,geometry,place_id,types,address_components"
@@ -513,71 +868,79 @@ class GooglePlacesTool:
             
             self.logger.info(f"Places API 요청: '{query}', 유형: {place_type or '없음'}")
             
-            response = requests.get(url, timeout=120)
-            if response.status_code != 200:
-                self.logger.warning(f"Google Places API 호출 실패: {response.status_code}")
-                return None
+            # 🔥 여기가 핵심 변경! requests 대신 aiohttp
+            timeout = aiohttp.ClientTimeout(total=30)  # 30초로 단축
             
-            data = response.json()
-            
-            if data['status'] == 'OK' and data.get('candidates') and len(data['candidates']) > 0:
-                candidate = data['candidates'][0]
-                
-                # 주소 구성 요소를 사용하여 보다 구체적인 주소 생성
-                address_components = candidate.get('address_components', [])
-                formatted_address = candidate.get('formatted_address', '')
-                
-                # 주소 구성 요소가 있으면 더 구체적인 주소 생성 시도
-                if address_components:
-                    address_parts = {}
-                    for component in address_components:
-                        for type in component.get('types', []):
-                            address_parts[type] = component.get('long_name')
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        self.logger.warning(f"Google Places API 호출 실패: {response.status}")
+                        return None
                     
-                    # 한국 주소 형식으로 구성
-                    if 'country' in address_parts and address_parts['country'] == '대한민국':
-                        if 'administrative_area_level_1' in address_parts:  # 시/도
-                            province = address_parts['administrative_area_level_1']
-                            if '서울' in province and '특별시' not in province:
-                                province = '서울특별시'
+                    data = await response.json()
+                    
+                    # 🔥 여기서부터는 기존 코드와 완전히 동일!
+                    if data['status'] == 'OK' and data.get('candidates') and len(data['candidates']) > 0:
+                        candidate = data['candidates'][0]
+                        
+                        # 주소 구성 요소를 사용하여 보다 구체적인 주소 생성
+                        address_components = candidate.get('address_components', [])
+                        formatted_address = candidate.get('formatted_address', '')
+                        
+                        # 주소 구성 요소가 있으면 더 구체적인 주소 생성 시도
+                        if address_components:
+                            address_parts = {}
+                            for component in address_components:
+                                for type in component.get('types', []):
+                                    address_parts[type] = component.get('long_name')
                             
-                            detailed_address = province
-                            
-                            if 'sublocality_level_1' in address_parts:  # 구
-                                detailed_address += f" {address_parts['sublocality_level_1']}"
-                            
-                            if 'sublocality_level_2' in address_parts:  # 동
-                                detailed_address += f" {address_parts['sublocality_level_2']}"
-                            
-                            if 'premise' in address_parts or 'street_number' in address_parts:
-                                if 'route' in address_parts:  # 도로명
-                                    detailed_address += f" {address_parts['route']}"
-                                
-                                if 'street_number' in address_parts:  # 건물번호
-                                    detailed_address += f" {address_parts['street_number']}"
-                                
-                                if 'premise' in address_parts:  # 건물명/층
-                                    detailed_address += f" {address_parts['premise']}"
-                            
-                            # 더 구체적인 주소가 생성되면 사용
-                            if len(detailed_address.split()) >= len(formatted_address.split()):
-                                formatted_address = detailed_address
-                
-                place_types = candidate.get('types', [])
-                self.logger.info(f"장소 찾음: {candidate.get('name')}, 유형: {place_types}")
-                
-                return {
-                    'name': candidate.get('name', query),
-                    'formatted_address': formatted_address,
-                    'latitude': candidate['geometry']['location']['lat'],
-                    'longitude': candidate['geometry']['location']['lng'],
-                    'place_id': candidate.get('place_id', ''),
-                    'types': place_types
-                }
-            else:
-                self.logger.warning(f"장소를 찾을 수 없음: {data['status']}")
-                return None
-                
+                            # 한국 주소 형식으로 구성
+                            if 'country' in address_parts and address_parts['country'] == '대한민국':
+                                if 'administrative_area_level_1' in address_parts:  # 시/도
+                                    province = address_parts['administrative_area_level_1']
+                                    if '서울' in province and '특별시' not in province:
+                                        province = '서울특별시'
+                                    
+                                    detailed_address = province
+                                    
+                                    if 'sublocality_level_1' in address_parts:  # 구
+                                        detailed_address += f" {address_parts['sublocality_level_1']}"
+                                    
+                                    if 'sublocality_level_2' in address_parts:  # 동
+                                        detailed_address += f" {address_parts['sublocality_level_2']}"
+                                    
+                                    if 'premise' in address_parts or 'street_number' in address_parts:
+                                        if 'route' in address_parts:  # 도로명
+                                            detailed_address += f" {address_parts['route']}"
+                                        
+                                        if 'street_number' in address_parts:  # 건물번호
+                                            detailed_address += f" {address_parts['street_number']}"
+                                        
+                                        if 'premise' in address_parts:  # 건물명/층
+                                            detailed_address += f" {address_parts['premise']}"
+                                    
+                                    # 더 구체적인 주소가 생성되면 사용
+                                    if len(detailed_address.split()) >= len(formatted_address.split()):
+                                        formatted_address = detailed_address
+                        
+                        place_types = candidate.get('types', [])
+                        self.logger.info(f"장소 찾음: {candidate.get('name')}, 유형: {place_types}")
+                        
+                        return {
+                            'name': candidate.get('name', query),
+                            'formatted_address': formatted_address,
+                            'latitude': candidate['geometry']['location']['lat'],
+                            'longitude': candidate['geometry']['location']['lng'],
+                            'place_id': candidate.get('place_id', ''),
+                            'types': place_types
+                        }
+                    else:
+                        self.logger.warning(f"장소를 찾을 수 없음: {data['status']}")
+                        return None
+                        
+        except asyncio.TimeoutError:
+            self.logger.error(f"장소 검색 timeout: {query}")
+            return None
         except Exception as e:
             self.logger.error(f"장소 검색 중 오류 발생: {str(e)}")
             return None
@@ -1906,7 +2269,7 @@ async def root():
     return {"message": "일정 추출 및 최적화 API가 실행 중입니다. POST /extract-schedule 또는 POST /api/v1/schedules/optimize-1 엔드포인트를 사용하세요."}
 
 @app.post("/extract-schedule", response_model=ExtractScheduleResponse)
-async def extract_schedule(request: ScheduleRequest):
+async def extract_schedule(request: ScheduleRequest):  # 메소드 이름 그대로!
     """
     음성 입력에서 일정을 추출하고 위치 정보를 보강합니다.
     """
@@ -1915,390 +2278,128 @@ async def extract_schedule(request: ScheduleRequest):
     logger.setLevel(logging.INFO)
     
     try:
-        # 인코딩 테스트 함수
-        def test_encoding(text):
-            """한글 인코딩 테스트 함수"""
-            logger.info(f"원본 텍스트: {text}")
-            
-            # 다양한 인코딩으로 변환 테스트
-            encodings = ['utf-8', 'euc-kr', 'cp949']
-            for enc in encodings:
-                try:
-                    encoded = text.encode(enc)
-                    decoded = encoded.decode(enc)
-                    logger.info(f"{enc} 인코딩 변환 결과: {decoded}, 변환 성공: {text == decoded}")
-                except Exception as e:
-                    logger.error(f"{enc} 인코딩 변환 실패: {str(e)}")
-            
-            # JSON 직렬화/역직렬화 테스트
-            try:
-                json_str = json.dumps({"text": text}, ensure_ascii=False)
-                json_obj = json.loads(json_str)
-                logger.info(f"JSON 변환 결과: {json_obj['text']}, 변환 성공: {text == json_obj['text']}")
-            except Exception as e:
-                logger.error(f"JSON 변환 실패: {str(e)}")
-        
-        # 시스템 인코딩 정보 확인
-        import sys
-        import locale
-        logger.info(f"시스템 기본 인코딩: {sys.getdefaultencoding()}")
-        logger.info(f"로케일 인코딩: {locale.getpreferredencoding()}")
-        logger.info(f"파이썬 파일 기본 인코딩: {sys.getfilesystemencoding()}")
-        
-        # 요청 처리 시작
         logger.info(f"일정 추출 요청 받음: 음성 입력 길이={len(request.voice_input)}")
         
-        # 입력 텍스트 인코딩 테스트
-        logger.info(f"음성 입력 인코딩 테스트:")
-        test_encoding(request.voice_input)
-        logger.info(f"음성 입력 받음: '{request.voice_input}'")
-        
-        # 1. LangChain을 사용한 일정 추출
-        logger.info("LangChain 일정 추출 체인 생성 시작")
+        # 🔥 1. LLM 체인 실행을 비동기로 (timeout 적용)
         chain = create_schedule_chain()
-        logger.info("LangChain 체인 생성 완료")
         
-        # 2. 체인 실행
-        result = None
         try:
-            # 입력 데이터 인코딩 확인
-            input_data = {"input": request.voice_input}
-            input_json = json.dumps(input_data, ensure_ascii=False)
-            logger.info(f"LangChain 입력 JSON: {input_json}")
-            
-            logger.info("LangChain 체인 실행 시작")
-            result = chain.invoke(input_data)
-            logger.info("LangChain 체인 실행 완료")
-            
-            # 결과 타입 확인
-            logger.info(f"LangChain 응답 타입: {type(result)}")
-            
-            # 결과 인코딩 테스트
-            if isinstance(result, dict):
-                result_json = json.dumps(result, ensure_ascii=False)
-                logger.info(f"LangChain 응답 JSON: {result_json[:200]}...")
-                
-                # 결과 한글 데이터 인코딩 테스트
-                if "fixedSchedules" in result and result["fixedSchedules"]:
-                    first_fixed = result["fixedSchedules"][0]
-                    if "name" in first_fixed:
-                        logger.info(f"고정 일정 이름 인코딩 테스트:")
-                        test_encoding(first_fixed["name"])
-                    if "location" in first_fixed:
-                        logger.info(f"고정 일정 위치 인코딩 테스트:")
-                        test_encoding(first_fixed["location"])
-                
-                if "flexibleSchedules" in result and result["flexibleSchedules"]:
-                    first_flexible = result["flexibleSchedules"][0]
-                    if "name" in first_flexible:
-                        logger.info(f"유연 일정 이름 인코딩 테스트:")
-                        test_encoding(first_flexible["name"])
-                    if "location" in first_flexible:
-                        logger.info(f"유연 일정 위치 인코딩 테스트:")
-                        test_encoding(first_flexible["location"])
-            else:
-                logger.info(f"LangChain 응답 (문자열): {result[:200]}...")
-                
-        except Exception as e:
-            logger.error(f"LangChain 처리 중 오류: {str(e)}")
-            # 오류 발생 시 문자열 추출 시도
-            if hasattr(e, 'response') and hasattr(e.response, 'content'):
-                try:
-                    # UTF-8로 명시적 디코딩
-                    content = e.response.content.decode('utf-8')
-                    logger.info(f"오류 응답 디코딩 (UTF-8): {content[:200]}...")
-                except UnicodeDecodeError:
-                    # UTF-8 디코딩 실패 시 다른 인코딩 시도
-                    try:
-                        content = e.response.content.decode('cp949')
-                        logger.info(f"오류 응답 디코딩 (CP949): {content[:200]}...")
-                    except Exception as e2:
-                        try:
-                            content = e.response.content.decode('euc-kr')
-                            logger.info(f"오류 응답 디코딩 (EUC-KR): {content[:200]}...")
-                        except Exception as e3:
-                            # 마지막 수단: 바이너리 출력
-                            content = str(e.response.content)
-                            logger.info(f"오류 응답 (바이너리): {content[:200]}...")
-                
-                json_match = re.search(r'({[\s\S]*})', content)
-                if json_match:
-                    json_str = json_match.group(1)
-                    logger.info(f"추출된 JSON 문자열: {json_str[:200]}...")
-                    # JSON 문자열 인코딩 테스트
-                    try:
-                        logger.info(f"JSON 문자열 인코딩 테스트:")
-                        test_encoding(json_str[:100]) # 첫 100자만 테스트
-                    except Exception as e4:
-                        logger.error("JSON 문자열 인코딩 테스트 실패")
-                    
-                    result = safe_parse_json(json_str)
-                else:
-                    logger.error("JSON 추출 실패")
-                    raise HTTPException(status_code=500, detail=f"LLM 응답 처리 실패: {str(e)}")
-            else:
-                logger.error("오류 응답에서 콘텐츠를 찾을 수 없음")
-                raise HTTPException(status_code=500, detail=f"LLM 처리 중 오류 발생: {str(e)}")
+            result = await asyncio.wait_for(
+                run_sync_in_thread(lambda: chain.invoke({"input": request.voice_input})),
+                timeout=60  # 1분 제한
+            )
+        except asyncio.TimeoutError:
+            logger.error("LLM 호출 timeout")
+            return ExtractScheduleResponse(fixedSchedules=[], flexibleSchedules=[])
         
-        # 3. 결과가 문자열인 경우 안전하게 JSON 파싱
+        # 🔥 2. 결과 파싱 (기존 코드와 동일)
         schedule_data = None
         if isinstance(result, str):
-            logger.info("응답이 문자열 형태입니다. JSON 추출 시도...")
-            # 문자열 인코딩 테스트
-            try:
-                logger.info(f"응답 문자열 인코딩 테스트 (처음 100자):")
-                test_encoding(result[:100])
-            except Exception as e:
-                logger.error("응답 문자열 인코딩 테스트 실패")
-            
-            # 정규식으로 JSON 추출
             json_match = re.search(r'({[\s\S]*})', result)
             if json_match:
-                json_str = json_match.group(1)
-                logger.info(f"정규식으로 추출한 JSON: {json_str[:200]}...")
-                # 추출된 JSON 인코딩 테스트
-                try:
-                    logger.info(f"추출된 JSON 인코딩 테스트 (처음 100자):")
-                    test_encoding(json_str[:100])
-                except Exception as e:
-                    logger.error("추출된 JSON 인코딩 테스트 실패")
-                
-                schedule_data = safe_parse_json(json_str)
+                schedule_data = safe_parse_json(json_match.group(1))
             else:
-                logger.info("정규식으로 JSON 추출 실패, 전체 문자열로 시도")
                 schedule_data = safe_parse_json(result)
         else:
-            # 이미 파싱된 객체를 인코딩 이슈 방지를 위해 다시 직렬화/역직렬화
             try:
                 result_json = json.dumps(result, ensure_ascii=False)
-                logger.info(f"결과 직렬화 성공: {result_json[:200]}...")
                 schedule_data = json.loads(result_json)
-                logger.info("결과 역직렬화 성공")
             except Exception as e:
-                logger.error(f"결과 직렬화/역직렬화 실패: {str(e)}")
-                # 실패 시 원본 사용
                 schedule_data = result
         
-        # 스케줄 데이터 구조 확인
-        logger.info(f"스케줄 데이터 구조:")
-        logger.info(f"고정 일정 수: {len(schedule_data.get('fixedSchedules', []))}")
-        logger.info(f"유연 일정 수: {len(schedule_data.get('flexibleSchedules', []))}")
+        # 🔥 3. 각 강화 단계를 비동기로 실행 (각각 timeout 적용)
         
-        # 각 일정 데이터 인코딩 테스트
-        if "fixedSchedules" in schedule_data and schedule_data["fixedSchedules"]:
-            first_fixed = schedule_data["fixedSchedules"][0]
-            logger.info(f"첫 번째 고정 일정 인코딩 테스트:")
-            if "name" in first_fixed:
-                logger.info(f"이름: {first_fixed['name']}")
-                test_encoding(first_fixed["name"])
-            if "location" in first_fixed:
-                logger.info(f"위치: {first_fixed['location']}")
-                test_encoding(first_fixed["location"])
-        
-        if "flexibleSchedules" in schedule_data and schedule_data["flexibleSchedules"]:
-            first_flexible = schedule_data["flexibleSchedules"][0]
-            logger.info(f"첫 번째 유연 일정 인코딩 테스트:")
-            if "name" in first_flexible:
-                logger.info(f"이름: {first_flexible['name']}")
-                test_encoding(first_flexible["name"])
-            if "location" in first_flexible:
-                logger.info(f"위치: {first_flexible['location']}")
-                test_encoding(first_flexible["location"])
-        
-        # 4. LangChain으로 시간 및 우선순위 강화
-        logger.info("시간 및 우선순위 강화 시작...")
+        # 시간 추론
         try:
-            # LangChain 체인 생성
-            logger.info("강화 체인 생성 시작")
             enhancement_chains = create_enhancement_chain()
-            time_chain = enhancement_chains["time_chain"]
-            priority_chain = enhancement_chains["priority_chain"]
-            logger.info("강화 체인 생성 완료")
-            
-            # 시간 추론 적용
-            logger.info("시간 추론 적용 시작")
-            schedule_data_with_time = apply_time_inference(
-                time_chain, 
-                request.voice_input, 
-                schedule_data
+            schedule_data = await asyncio.wait_for(
+                run_sync_in_thread(
+                    apply_time_inference,
+                    enhancement_chains["time_chain"],
+                    request.voice_input,
+                    schedule_data
+                ),
+                timeout=30  # 30초 제한
             )
-            logger.info("시간 추론 적용 완료")
-            
-            # 시간 추론 적용 결과 로깅
-            logger.info("시간 추론 적용 결과 요약:")
-            for idx, schedule in enumerate(schedule_data_with_time.get("flexibleSchedules", [])):
-                logger.info(f"유연 일정 {idx+1}: {schedule.get('name', '')}, 시작: {schedule.get('startTime', 'N/A')}, 종료: {schedule.get('endTime', 'N/A')}")
-            
-            # 일정 간 시간 충돌 분석 및 해결
-            logger.info("일정 간 시간 충돌 분석 및 해결 시작...")
-            schedule_data_without_conflicts = detect_and_resolve_time_conflicts(schedule_data_with_time, min_gap_minutes=15)
-            logger.info("시간 충돌 해결 완료")
-            
-            # 우선순위 분석 적용
-            logger.info("우선순위 분석 적용 시작")
-            enhanced_schedule_data = apply_priorities(
-                priority_chain, 
-                request.voice_input, 
-                schedule_data_without_conflicts
-            )
-            logger.info("우선순위 분석 적용 완료")
-            
-            # 우선순위 분석 적용 결과 로깅
-            logger.info("우선순위 분석 적용 결과 요약:")
-            for idx, schedule in enumerate(enhanced_schedule_data.get("flexibleSchedules", [])):
-                logger.info(f"유연 일정 {idx+1}: {schedule.get('name', '')}, 우선순위: {schedule.get('priority', 'N/A')}")
-            
-            # 일정 간 관계 분석 적용
-            logger.info("일정 간 관계 분석 적용 시작")
-            final_enhanced_data = enhance_schedule_with_relationships(
-                request.voice_input,
-                enhanced_schedule_data
-            )
-            logger.info("일정 간 관계 분석 적용 완료")
-            
-            # 관계 분석 적용 결과 로깅
-            logger.info("관계 분석 적용 결과 요약:")
-            for idx, schedule in enumerate(final_enhanced_data.get("flexibleSchedules", [])):
-                logger.info(f"유연 일정 {idx+1}: {schedule.get('name', '')}, 타입: {schedule.get('type', 'N/A')}, 시간: {schedule.get('startTime', 'N/A')} ~ {schedule.get('endTime', 'N/A')}, 우선순위: {schedule.get('priority', 'N/A')}")
-            
-            logger.info("시간, 우선순위, 관계 강화 완료")
-            
+        except asyncio.TimeoutError:
+            logger.warning("시간 추론 timeout, 원본 데이터 사용")
         except Exception as e:
-            logger.error(f"시간 및 우선순위 강화 중 오류: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            # 오류 발생 시 원본 데이터 사용
-            logger.info("오류로 인해 원본 데이터 사용")
-            final_enhanced_data = schedule_data
+            logger.warning(f"시간 추론 실패: {str(e)}")
         
-        # 5. 향상된 위치 정보 보강
-        logger.info(f"위치 정보 보강 시작...")
-        location_enhanced_data = None
+        # 충돌 해결
         try:
-            logger.info("위치 정보 보강 함수 호출")
-            location_enhanced_data = enhance_location_data(final_enhanced_data)
-            
-            # 보강된 데이터 인코딩 테스트
-            enhanced_json = json.dumps(location_enhanced_data, ensure_ascii=False)
-            logger.info(f"보강된 데이터 직렬화 성공, 길이: {len(enhanced_json)}")
-            logger.info(f"보강된 데이터 JSON 샘플: {enhanced_json[:200]}...")
-            
-            # 한 번 더 직렬화/역직렬화로 인코딩 문제 방지
-            location_enhanced_data = json.loads(enhanced_json)
-            logger.info("보강된 데이터 역직렬화 성공")
-            
-           # 보강된 데이터 인코딩 테스트
-            if "fixedSchedules" in location_enhanced_data and location_enhanced_data["fixedSchedules"]:
-                first_fixed = location_enhanced_data["fixedSchedules"][0]
-                logger.info(f"보강된 첫 번째 고정 일정 인코딩 테스트:")
-                if "name" in first_fixed:
-                    logger.info(f"이름: {first_fixed['name']}")
-                    test_encoding(first_fixed["name"])
-                if "location" in first_fixed:
-                    logger.info(f"위치: {first_fixed['location']}")
-                    test_encoding(first_fixed["location"])
-            
-            if "flexibleSchedules" in location_enhanced_data and location_enhanced_data["flexibleSchedules"]:
-                first_flexible = location_enhanced_data["flexibleSchedules"][0]
-                logger.info(f"보강된 첫 번째 유연 일정 인코딩 테스트:")
-                if "name" in first_flexible:
-                    logger.info(f"이름: {first_flexible['name']}")
-                    test_encoding(first_flexible["name"])
-                if "location" in first_flexible:
-                    logger.info(f"위치: {first_flexible['location']}")
-                    test_encoding(first_flexible["location"])
-            
-            logger.info(f"위치 정보 보강 완료")
+            schedule_data = await asyncio.wait_for(
+                run_sync_in_thread(detect_and_resolve_time_conflicts, schedule_data),
+                timeout=30
+            )
+        except asyncio.TimeoutError:
+            logger.warning("충돌 해결 timeout")
         except Exception as e:
-            logger.error(f"위치 정보 보강 중 오류 발생: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            # 오류 발생 시 원본 데이터 사용
-            logger.info("위치 정보 보강 오류로 인해 강화 데이터 사용")
-            location_enhanced_data = final_enhanced_data
+            logger.warning(f"충돌 해결 실패: {str(e)}")
         
-        # 최종 일정 분류 및 배치 (타입에 따라 올바른 배열에 분류)
-        logger.info("최종 일정 분류 및 배치...")
+        # 우선순위 분석
+        try:
+            enhancement_chains = create_enhancement_chain()
+            schedule_data = await asyncio.wait_for(
+                run_sync_in_thread(
+                    apply_priorities,
+                    enhancement_chains["priority_chain"],
+                    request.voice_input,
+                    schedule_data
+                ),
+                timeout=30
+            )
+        except asyncio.TimeoutError:
+            logger.warning("우선순위 분석 timeout")
+        except Exception as e:
+            logger.warning(f"우선순위 분석 실패: {str(e)}")
         
-        # 모든 일정 수집
+        # 관계 분석
+        try:
+            schedule_data = await asyncio.wait_for(
+                run_sync_in_thread(
+                    enhance_schedule_with_relationships,
+                    request.voice_input,
+                    schedule_data
+                ),
+                timeout=30
+            )
+        except asyncio.TimeoutError:
+            logger.warning("관계 분석 timeout")
+        except Exception as e:
+            logger.warning(f"관계 분석 실패: {str(e)}")
+        
+        # 🔥 4. 위치 정보 보강 (기존 함수를 비동기로 실행)
+        try:
+            schedule_data = await asyncio.wait_for(
+                run_sync_in_thread(enhance_location_data, schedule_data),
+                timeout=120  # 2분 제한
+            )
+        except asyncio.TimeoutError:
+            logger.warning("위치 정보 보강 timeout")
+        except Exception as e:
+            logger.warning(f"위치 정보 보강 실패: {str(e)}")
+        
+        # 🔥 5. 최종 데이터 정리 (기존 코드와 동일)
         all_schedules = []
-        all_schedules.extend(location_enhanced_data.get("fixedSchedules", []))
-        all_schedules.extend(location_enhanced_data.get("flexibleSchedules", []))
+        all_schedules.extend(schedule_data.get("fixedSchedules", []))
+        all_schedules.extend(schedule_data.get("flexibleSchedules", []))
         
-        # 타입에 따라 재분류
         fixed_schedules = [s for s in all_schedules if s.get("type") == "FIXED" and "startTime" in s and "endTime" in s]
         flexible_schedules = [s for s in all_schedules if s.get("type") != "FIXED" or "startTime" not in s or "endTime" not in s]
         
-        # 최종 데이터 구성
-        final_data = location_enhanced_data.copy()
-        final_data["fixedSchedules"] = fixed_schedules
-        final_data["flexibleSchedules"] = flexible_schedules
+        final_data = {
+            "fixedSchedules": fixed_schedules,
+            "flexibleSchedules": flexible_schedules
+        }
         
-        logger.info(f"최종 분류: 고정 일정 {len(fixed_schedules)}개, 유연 일정 {len(flexible_schedules)}개")
-        
-        # 6. Pydantic 모델로 변환하여 응답 검증
+        # Pydantic 모델로 변환
         try:
-            logger.info(f"Pydantic 모델 변환 시작...")
-            
-            # 모델 변환 전 인코딩 확인을 위해 두 번 직렬화-역직렬화
-            final_json = json.dumps(final_data, ensure_ascii=False)
-            final_data = json.loads(final_json)
-            logger.info(f"최종 데이터 직렬화/역직렬화 성공, 길이: {len(final_json)}")
-            
-            # 변환 전 최종 데이터 구조 로깅
-            logger.info(f"최종 데이터 구조:")
-            logger.info(f"고정 일정 수: {len(final_data.get('fixedSchedules', []))}")
-            logger.info(f"유연 일정 수: {len(final_data.get('flexibleSchedules', []))}")
-            
-            # 최종 데이터의 각 일정 로깅
-            logger.info("최종 고정 일정:")
-            for idx, schedule in enumerate(final_data.get("fixedSchedules", [])):
-                logger.info(f"고정 일정 {idx+1}: {schedule.get('name', '')}, 위치: {schedule.get('location', 'N/A')}, 시간: {schedule.get('startTime', 'N/A')} ~ {schedule.get('endTime', 'N/A')}, 우선순위: {schedule.get('priority', 'N/A')}")
-            
-            logger.info("최종 유연 일정:")
-            for idx, schedule in enumerate(final_data.get("flexibleSchedules", [])):
-                logger.info(f"유연 일정 {idx+1}: {schedule.get('name', '')}, 위치: {schedule.get('location', 'N/A')}, 시간: {schedule.get('startTime', 'N/A')} ~ {schedule.get('endTime', 'N/A')}, 우선순위: {schedule.get('priority', 'N/A')}")
-            
-            # Pydantic 모델로 변환
-            logger.info("Pydantic 모델 변환 시도")
             response = ExtractScheduleResponse(**final_data)
-            logger.info("Pydantic 모델 변환 성공")
-            
-            # 응답 데이터 샘플 출력
-            if response.fixedSchedules:
-                logger.info(f"응답 고정 일정 첫 항목 이름: {response.fixedSchedules[0].name}")
-                test_encoding(response.fixedSchedules[0].name)
-                logger.info(f"응답 고정 일정 첫 항목 위치: {response.fixedSchedules[0].location}")
-                test_encoding(response.fixedSchedules[0].location)
-            
-            if response.flexibleSchedules:
-                logger.info(f"응답 유연 일정 첫 항목 이름: {response.flexibleSchedules[0].name}")
-                test_encoding(response.flexibleSchedules[0].name)
-                logger.info(f"응답 유연 일정 첫 항목 위치: {response.flexibleSchedules[0].location}")
-                test_encoding(response.flexibleSchedules[0].location)
-            
-            logger.info("최종 응답 준비 완료")
-            # Pydantic 모델 직접 반환
             return response
-            
         except Exception as e:
             logger.error(f"Pydantic 모델 변환 오류: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            
-            # 마지막 수단: 직접 JSONResponse 반환
             from fastapi.responses import JSONResponse
-            logger.info("JSONResponse로 대체 응답 생성")
-            
-            # 직접 직렬화
-            final_json = json.dumps(final_data, ensure_ascii=False)
-            logger.info(f"직접 직렬화 성공, 길이: {len(final_json)}")
-            
-            # JSON으로 다시 파싱
-            final_data = json.loads(final_json)
-            logger.info("직접 역직렬화 성공")
-            
-            logger.info("JSONResponse 반환")
             return JSONResponse(
                 content=final_data,
                 media_type="application/json; charset=utf-8"
@@ -2306,9 +2407,7 @@ async def extract_schedule(request: ScheduleRequest):
             
     except Exception as e:
         logger.error(f"일정 처리 전체 오류: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"일정 처리 중 오류 발생: {str(e)}")
+        return ExtractScheduleResponse(fixedSchedules=[], flexibleSchedules=[])
 
 @app.post("/api/v1/schedules/optimize-1", response_model=OptimizeScheduleResponse)
 async def optimize_schedules(request: OptimizeScheduleRequest):
