@@ -105,7 +105,7 @@ class FixedSchedule(BaseModel):
     name: str
     type: str = "FIXED"
     duration: int = 60
-    priority: int = 1
+    priority: float  = 1.0
     location: str = ""
     latitude: float = 37.5665
     longitude: float = 126.9780
@@ -117,7 +117,7 @@ class FlexibleSchedule(BaseModel):
     name: str
     type: str = "FLEXIBLE"
     duration: int = 60
-    priority: int = 3
+    priority: float  = 3.0
     location: str = ""
     latitude: float = 37.5665
     longitude: float = 126.9780
