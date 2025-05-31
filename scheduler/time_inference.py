@@ -89,17 +89,20 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
     fixed_schedules = extracted_schedules.get("fixedSchedules", [])
     logger.info(f"고정 일정 수: {len(fixed_schedules)}")
     
-    # 🔥 시간 맥락 분석 개선 - 음성 입력과 현재 시간을 고려한 식사 시간 추정
-    def determine_meal_time_from_context(voice_input: str, current_time: datetime.datetime) -> Dict[str, Any]:
+    def determine_meal_time_from_context(voice_input: str, reference_time: datetime.datetime) -> Dict[str, Any]:
         """음성 입력의 맥락에서 식사 시간 추정 - 실제 현재 시간 기준"""
         voice_lower = voice_input.lower()
         
         # 🔥 실제 현재 시간 사용 (참조 시간이 아님!)
-        actual_current_hour = datetime.datetime.now().hour
+        actual_now = datetime.datetime.now()
+        actual_current_hour = actual_now.hour
         
-        logger.info(f"🍽️ 식사 시간 맥락 분석: 실제현재시간={actual_current_hour}시, 참조시간={current_time.hour}시, 입력='{voice_lower}'")
+        logger.info(f"🍽️ 식사 시간 맥락 분석:")
+        logger.info(f"   실제 현재시간: {actual_now} ({actual_current_hour}시)")
+        logger.info(f"   참조시간: {reference_time} (마지막 일정 시간)")
+        logger.info(f"   입력: '{voice_lower}'")
         
-        # 명시적 시간 표현 체크
+        # 🔥 명시적 시간 표현 우선 처리
         if any(time_word in voice_lower for time_word in ["아침", "morning"]):
             result = {
                 "meal_type": "아침 식사",
@@ -107,85 +110,93 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
                 "duration": 60,
                 "confidence": 0.9
             }
-            logger.info(f"   명시적 '아침' 표현 감지")
+            logger.info(f"   ✅ 명시적 '아침' 표현 감지")
+            
         elif any(time_word in voice_lower for time_word in ["점심", "lunch"]):
             result = {
-                "meal_type": "점심 식사", 
+                "meal_type": "점심 식사",
                 "start_hour": 12,
                 "duration": 90,
                 "confidence": 0.9
             }
-            logger.info(f"   명시적 '점심' 표현 감지")
+            logger.info(f"   ✅ 명시적 '점심' 표현 감지")
+            
         elif any(time_word in voice_lower for time_word in ["저녁", "dinner"]):
-            # 🔥 "저녁"이지만 실제 현재 시간대에 따라 유연하게 조정
-            if 6 <= actual_current_hour < 11:  # 실제 아침 시간대
+            # 🔥 "저녁"이라고 했으면 실제 현재 시간과 관계없이 저녁 시간으로!
+            if actual_current_hour < 17:  # 오후 5시 이전이면
                 result = {
-                    "meal_type": "아침 식사",
-                    "start_hour": max(actual_current_hour + 1, 8),
-                    "duration": 60,
-                    "confidence": 0.7
+                    "meal_type": "저녁 식사",
+                    "start_hour": 18,  # 일반적인 저녁 시간
+                    "duration": 120,
+                    "confidence": 0.9
                 }
-                logger.info(f"   '저녁'이지만 실제 아침 시간대({actual_current_hour}시)이므로 '아침 식사'로 조정")
-            elif 11 <= actual_current_hour < 15:  # 실제 점심 시간대
-                result = {
-                    "meal_type": "점심 식사", 
-                    "start_hour": max(actual_current_hour, 12),
-                    "duration": 90,
-                    "confidence": 0.8
-                }
-                logger.info(f"   '저녁'이지만 실제 점심 시간대({actual_current_hour}시)이므로 '점심 식사'로 조정")
-            elif 15 <= actual_current_hour < 18:  # 실제 오후 시간대
-                result = {
-                    "meal_type": "간식 시간",
-                    "start_hour": max(actual_current_hour + 1, 16),
-                    "duration": 60,
-                    "confidence": 0.6
-                }
-                logger.info(f"   '저녁'이지만 실제 오후 시간대({actual_current_hour}시)이므로 '간식 시간'으로 조정")
-            else:  # 실제 저녁 시간대
+                logger.info(f"   ✅ '저녁' 표현으로 18시 저녁 식사 설정 (현재 {actual_current_hour}시이지만)")
+            else:
+                # 현재가 이미 저녁 시간이면 바로 설정
                 result = {
                     "meal_type": "저녁 식사",
                     "start_hour": max(actual_current_hour + 1, 18),
                     "duration": 120,
                     "confidence": 0.9
                 }
-                logger.info(f"   실제 저녁 시간대({actual_current_hour}시)이므로 '저녁 식사' 유지")
-        else:
-            # 🔥 일반적인 "식사", "밥" 등은 실제 현재 시간 기준으로 다음 식사 시간 추정
+                logger.info(f"   ✅ 현재 저녁 시간대({actual_current_hour}시)이므로 저녁 식사 유지")
+                
+        elif any(word in voice_lower for word in ['식사', '식당', '밥', '먹']):
+            # 🔥 일반적인 "식사" 표현은 실제 현재 시간 기준으로 다음 식사 결정
             if actual_current_hour < 9:
                 result = {
-                    "meal_type": "아침 식사", 
-                    "start_hour": 8, 
+                    "meal_type": "아침 식사",
+                    "start_hour": 8,
                     "duration": 60,
                     "confidence": 0.7
                 }
+                logger.info(f"   ⏰ 현재 {actual_current_hour}시 → 다음 식사: 아침")
             elif actual_current_hour < 13:
                 result = {
-                    "meal_type": "점심 식사", 
-                    "start_hour": 12, 
+                    "meal_type": "점심 식사",
+                    "start_hour": 12,
                     "duration": 90,
                     "confidence": 0.8
                 }
+                logger.info(f"   ⏰ 현재 {actual_current_hour}시 → 다음 식사: 점심")
             elif actual_current_hour < 17:
                 result = {
-                    "meal_type": "간식 시간", 
-                    "start_hour": 15, 
-                    "duration": 60,
-                    "confidence": 0.6
-                }
-            else:
-                result = {
-                    "meal_type": "저녁 식사", 
-                    "start_hour": 18, 
+                    "meal_type": "저녁 식사",
+                    "start_hour": 18,
                     "duration": 120,
                     "confidence": 0.8
                 }
-            
-            logger.info(f"   일반 식사 표현으로 실제 시간({actual_current_hour}시) 기준 '{result['meal_type']}' 선택")
+                logger.info(f"   ⏰ 현재 {actual_current_hour}시 → 다음 식사: 저녁")
+            else:
+                result = {
+                    "meal_type": "저녁 식사",
+                    "start_hour": max(actual_current_hour + 1, 19),
+                    "duration": 120,
+                    "confidence": 0.7
+                }
+                logger.info(f"   ⏰ 현재 {actual_current_hour}시 → 늦은 저녁")
+        else:
+            # 기본값: 다음 식사 시간
+            result = {
+                "meal_type": "식사",
+                "start_hour": max(actual_current_hour + 1, 12),
+                "duration": 90,
+                "confidence": 0.5
+            }
+            logger.info(f"   ⚠️ 기본값 적용: 다음 시간({result['start_hour']}시)")
         
-        logger.info(f"   최종 결정: {result['meal_type']}, {result['start_hour']}시, {result['duration']}분, 신뢰도: {result['confidence']}")
+        # 🔥 참조 시간과의 조정 (일정 순서 고려)
+        reference_hour = reference_time.hour if reference_time else actual_current_hour
+        
+        # 참조 시간 이후로 조정 (일정이 겹치지 않도록)
+        if result["start_hour"] <= reference_hour:
+            adjusted_hour = reference_hour + 1
+            logger.info(f"   🔄 참조 시간({reference_hour}시) 이후로 조정: {result['start_hour']}시 → {adjusted_hour}시")
+            result["start_hour"] = adjusted_hour
+        
+        logger.info(f"   🎯 최종 결정: {result['meal_type']}, {result['start_hour']}시, {result['duration']}분, 신뢰도: {result['confidence']}")
         return result
-    
+        
     # 시간 추론 결과 획득
     time_info = infer_time_expressions(time_chain, voice_input, fixed_schedules)
     logger.info(f"시간 추론 결과: 표현={len(time_info.get('time_expressions', []))}개, 추론={len(time_info.get('inferred_times', []))}개")

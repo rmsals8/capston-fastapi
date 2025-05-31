@@ -438,12 +438,12 @@ class TripleLocationSearchService:
 
     @staticmethod
     async def search_foursquare(analysis: LocationAnalysis) -> Optional[PlaceResult]:
-        """1순위: Foursquare API 검색 - 카테고리 필터링 강화"""
+        """3순위: Foursquare API 검색 - 카테고리 필터링 강화"""
         if not FOURSQUARE_API_KEY:
             logger.warning("❌ Foursquare API 키가 없습니다")
             return None
             
-        logger.info(f"🔍 1순위 Foursquare 검색: {analysis.place_name}")
+        logger.info(f"🔍 3순위 Foursquare 검색: {analysis.place_name}")
         
         try:
             # 지역 좌표 (기존과 동일)
@@ -495,7 +495,7 @@ class TripleLocationSearchService:
                 "하남시": {"lat": 37.5394, "lng": 127.2147},
                 "화성시": {"lat": 37.1996, "lng": 126.8310},
                 
-                # 강원특별자치도 및 하위 시·군
+                # 강원특별자치도 및 하위 시·군  
                 "강원특별자치도": {"lat": 37.8228, "lng": 128.1555},
                 "강릉시": {"lat": 37.7519, "lng": 128.8761},
                 "고성군": {"lat": 38.3806, "lng": 128.4678},
@@ -646,51 +646,54 @@ class TripleLocationSearchService:
                 "Accept": "application/json"
             }
             
-            # 카테고리별 필터링 추가
-            category_filters = {
-                "대학교": ["대학교", "대학", "university", "college"],
-                "경기장": ["경기장", "stadium", "스포츠", "축구"],
-                "식당": ["식당", "레스토랑", "restaurant", "음식", "맛집"],
-                "카페": ["카페", "커피", "coffee", "cafe", "디저트"]
-            }
-            
-            # 검색 전략 개선
+            # 🔥 카테고리별 강화된 검색 전략
             search_strategies = []
             
             # 1) 구체적인 장소명 (대학교, 경기장 등)
             if any(keyword in analysis.place_name.lower() for keyword in ['대학교', '경기장', '월드컵', '공항', '역']):
                 search_strategies.append(analysis.place_name)
-            
+                
             # 2) 지역명 + 장소명
             region_name = analysis.region.replace('특별시', '').replace('광역시', '')
             search_strategies.append(f"{region_name} {analysis.place_name}")
             
-            # 3) 카테고리별 특화 검색
+            # 3) 🔥 카테고리별 특화 검색 (강화됨)
             place_lower = analysis.place_name.lower()
-            if "식당" in place_lower or "restaurant" in analysis.category.lower():
+            if any(word in place_lower for word in ["식당", "restaurant", "식사", "밥", "저녁", "점심"]):
                 search_strategies.extend([
-                    f"{region_name} 맛집",
+                    f"{region_name} restaurant",
                     f"{region_name} 식당",
-                    f"{region_name} restaurant"
+                    f"{region_name} food",
+                    f"{analysis.district} restaurant"
                 ])
-            elif "카페" in place_lower or "cafe" in analysis.category.lower():
+                logger.info(f"🍽️ 식사 카테고리 검색 추가")
+            elif any(word in place_lower for word in ["카페", "cafe", "커피"]):
                 search_strategies.extend([
-                    f"{region_name} 카페",
+                    f"{region_name} cafe",
                     f"{region_name} 커피",
-                    f"{region_name} cafe"
+                    f"{region_name} coffee"
                 ])
+                logger.info(f"☕ 카페 카테고리 검색 추가")
             
-            logger.info(f"🔍 검색 전략: {search_strategies}")
+            logger.info(f"🔍 Foursquare 검색 전략: {search_strategies}")
             
             for strategy in search_strategies:
                 try:
                     params = {
                         "query": strategy,
                         "ll": f"{coords['lat']},{coords['lng']}",
-                        "radius": 15000,
-                        "limit": 15,
+                        "radius": 15000,  # 15km
+                        "limit": 20,      # 더 많은 결과
                         "sort": "DISTANCE"
                     }
+                    
+                    # 🔥 식사 관련이면 카테고리 필터 추가
+                    if any(word in strategy.lower() for word in ['restaurant', '식당', 'food']):
+                        params["categories"] = "13000"  # Food & Dining
+                        logger.info(f"🍽️ 식당 카테고리 필터 적용")
+                    elif any(word in strategy.lower() for word in ['cafe', 'coffee', '커피']):
+                        params["categories"] = "13032,13040"  # Cafe, Coffee Shop
+                        logger.info(f"☕ 카페 카테고리 필터 적용")
                     
                     logger.info(f"🔍 Foursquare 검색어: '{strategy}'")
                     
@@ -702,58 +705,103 @@ class TripleLocationSearchService:
                                 if data.get("results"):
                                     logger.info(f"✅ Foursquare 결과 {len(data['results'])}개 발견")
                                     
-                                    # 카테고리 일치 점수 계산 강화
+                                    # 🔥 카테고리 일치 점수 계산 강화
                                     for i, place in enumerate(data["results"]):
                                         location = place.get("geocodes", {}).get("main", {})
                                         address = place.get("location", {}).get("formatted_address", "")
                                         place_name = place.get("name", "")
+                                        categories = place.get("categories", [])
                                         
                                         logger.info(f"   후보 {i+1}: {place_name} - {address}")
+                                        logger.info(f"     카테고리: {[cat.get('name') for cat in categories]}")
                                         
                                         if not (location.get("latitude") and location.get("longitude")):
+                                            logger.info(f"     ❌ 좌표 정보 없음")
                                             continue
                                         
-                                        # 지역 일치 확인
+                                        # 🔥 강화된 필터링
+                                        
+                                        # 1) 부정적 키워드 필터 (대폭 강화)
+                                        negative_keywords = [
+                                            "학원", "병원", "의원", "약국", "은행", "부동산", 
+                                            "유학", "학회", "컨설팅", "사무실", "office", 
+                                            "academy", "hospital", "clinic", "bank",
+                                            "real estate", "study abroad", "immigration",
+                                            "consulting", "law firm", "immigration office",
+                                            "어학원", "컨설턴트", "이민", "법무법인"
+                                        ]
+                                        
+                                        is_negative = any(neg in place_name.lower() for neg in negative_keywords)
+                                        
+                                        if is_negative:
+                                            logger.info(f"     ❌ 부정 키워드 필터링: {place_name}")
+                                            continue
+                                        
+                                        # 2) 카테고리 적합성 확인 (대폭 강화)
+                                        category_match = False
+                                        category_score = 0
+                                        
+                                        if any(word in strategy.lower() for word in ['restaurant', '식당', 'food', '식사', '밥']):
+                                            # 식당 카테고리 확인
+                                            food_categories = [
+                                                "restaurant", "food", "dining", "korean", "chinese", 
+                                                "japanese", "italian", "american", "thai", "indian",
+                                                "식당", "음식점", "레스토랑", "eatery", "bistro",
+                                                "steakhouse", "pizzeria", "noodle", "barbecue"
+                                            ]
+                                            for cat in categories:
+                                                cat_name = cat.get("name", "").lower()
+                                                if any(food_cat in cat_name for food_cat in food_categories):
+                                                    category_match = True
+                                                    category_score += 5
+                                                    logger.info(f"     ✅ 식당 카테고리 일치: {cat_name}")
+                                                    break
+                                                    
+                                        elif any(word in strategy.lower() for word in ['cafe', 'coffee', '커피']):
+                                            # 카페 카테고리 확인
+                                            cafe_categories = ["cafe", "coffee", "bakery", "dessert", "카페", "tea"]
+                                            for cat in categories:
+                                                cat_name = cat.get("name", "").lower()
+                                                if any(cafe_cat in cat_name for cafe_cat in cafe_categories):
+                                                    category_match = True
+                                                    category_score += 5
+                                                    logger.info(f"     ✅ 카페 카테고리 일치: {cat_name}")
+                                                    break
+                                        else:
+                                            category_match = True  # 기타 검색은 카테고리 제한 없음
+                                            category_score += 2
+                                        
+                                        # 3) 지역 일치 확인
+                                        region_score = 0
                                         region_keywords = [
                                             analysis.region.replace('특별시', '').replace('광역시', ''),
                                             analysis.district
                                         ]
-                                        region_match = any(keyword in address for keyword in region_keywords if keyword)
                                         
-                                        # 장소명 유사도 확인 (강화)
-                                        name_similarity = 0
+                                        for keyword in region_keywords:
+                                            if keyword and keyword in address:
+                                                region_score += 3
+                                                logger.info(f"     ✅ 지역 일치: {keyword}")
+                                        
+                                        # 4) 이름 유사도 확인
+                                        name_score = 0
                                         search_terms = analysis.place_name.lower().split()
                                         place_terms = place_name.lower().split()
                                         
                                         for term in search_terms:
                                             if len(term) > 1:
                                                 if any(term in pt for pt in place_terms):
-                                                    name_similarity += 1
+                                                    name_score += 2
                                         
-                                        # 카테고리 일치 확인 (새로 추가)
-                                        category_match = 0
-                                        for category, keywords in category_filters.items():
-                                            if category in analysis.place_name.lower():
-                                                for keyword in keywords:
-                                                    if keyword in place_name.lower():
-                                                        category_match += 1
-                                                        break
+                                        # 5) 총점 계산
+                                        total_score = category_score + region_score + name_score
                                         
-                                        # 부정적인 카테고리 필터링 (학원, 병원 등 제외)
-                                        negative_keywords = ["학원", "병원", "의원", "클리닉", "academy", "hospital"]
-                                        is_negative = any(neg in place_name.lower() for neg in negative_keywords)
+                                        logger.info(f"     📊 점수: 카테고리={category_score} + 지역={region_score} + 이름={name_score} = {total_score}")
                                         
-                                        # 종합 점수 계산
-                                        score = (1 if region_match else 0) + (name_similarity * 0.5) + (category_match * 0.3)
+                                        # 🔥 엄격한 기준 적용 (식사/카페는 카테고리 필수)
+                                        min_score = 5 if any(word in strategy.lower() for word in ['restaurant', '식당', 'cafe']) else 3
                                         
-                                        # 부정적 키워드가 있으면 점수 대폭 감소
-                                        if is_negative:
-                                            score = max(0, score - 1.0)
-                                        
-                                        logger.info(f"     지역일치: {region_match}, 이름유사도: {name_similarity}, 카테고리매치: {category_match}, 부정적: {is_negative}, 점수: {score}")
-                                        
-                                        # 최소 점수 기준 상향 조정
-                                        if score >= 1.0:  # 0.5 → 1.0으로 상향
+                                        if category_match and total_score >= min_score:
                                             result = PlaceResult(
                                                 name=place_name,
                                                 address=address,
@@ -763,9 +811,13 @@ class TripleLocationSearchService:
                                                 rating=place.get("rating")
                                             )
                                             
-                                            logger.info(f"✅ Foursquare 검색 성공: {result.name}")
+                                            logger.info(f"🎉 Foursquare 필터링 검색 성공!")
+                                            logger.info(f"   🏪 장소: {result.name}")
                                             logger.info(f"   📍 주소: {result.address}")
+                                            logger.info(f"   🏷️ 카테고리: {[cat.get('name') for cat in categories]}")
                                             return result
+                                        else:
+                                            logger.info(f"     ❌ 기준 미달: 카테고리매치={category_match}, 점수={total_score} < {min_score}")
                                     
                                     logger.info(f"⚠️ 검색어 '{strategy}' - 적절한 결과 없음")
                                 else:
@@ -778,7 +830,7 @@ class TripleLocationSearchService:
                     continue
                     
         except Exception as e:
-            logger.error(f"❌ Foursquare 검색 전체 오류: {e}")
+            logger.error(f"❌ Foursquare 전체 검색 오류: {e}")
         
         logger.warning(f"⚠️ Foursquare 모든 검색 실패: {analysis.place_name}")
         return None
@@ -947,7 +999,7 @@ class TripleLocationSearchService:
         
         logger.info(f"📍 전국 구/시/군 {len(all_districts)}개 지역 대응")
         
-        # 🔥 참조 위치에서 지역 정보 추출 (시/도 + 구/시/군)
+        # 🔥 참조 위치에서 정확한 지역 정보 추출 (시/도 + 구/시/군)
         reference_region = None
         reference_district = None
         reference_dong = None
@@ -958,19 +1010,19 @@ class TripleLocationSearchService:
                 if ref_location:
                     logger.info(f"📍 참조 위치 분석: {ref_location}")
                     
-                    # 시/도 정보 추출
-                    for region in KOREA_REGIONS.keys():
-                        region_short = region.replace('특별시', '').replace('광역시', '').replace('특별자치시', '').replace('특별자치도', '').replace('도', '')
-                        if region_short in ref_location or region in ref_location:
-                            reference_region = region
-                            logger.info(f"   📍 참조 시/도: {region}")
-                            break
-                    
-                    # 구/시/군 정보 추출
-                    for district in all_districts:
-                        if district in ref_location:
-                            reference_district = district
-                            logger.info(f"   📍 참조 구/시/군: {district}")
+                    # 시/도 정보 추출 (더 정확하게)
+                    for region_key, districts in KOREA_REGIONS.items():
+                        region_short = region_key.replace('특별시', '').replace('광역시', '').replace('특별자치시', '').replace('특별자치도', '').replace('도', '')
+                        if region_short in ref_location or region_key in ref_location:
+                            reference_region = region_key
+                            logger.info(f"   📍 참조 시/도: {region_key}")
+                            
+                            # 해당 시/도의 구/시/군만 확인
+                            for district in districts:
+                                if district in ref_location:
+                                    reference_district = district
+                                    logger.info(f"   📍 참조 구/시/군: {district}")
+                                    break
                             break
                     
                     # 동 정보도 추출 시도
@@ -981,15 +1033,15 @@ class TripleLocationSearchService:
                         logger.info(f"   📍 참조 동: {reference_dong}")
                     
                     break
-        
+
         try:
             url = "https://dapi.kakao.com/v2/local/search/keyword.json"
             headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
             
-            # 🔥 전국 대응 검색 전략
+            # 🔥 동명이인 방지 검색 전략
             search_strategies = []
             
-            # 1) 구체적 장소명 (역, 대학교 등)은 그대로
+            # 1) 구체적 장소명 (역, 대학교 등)은 지역 제한 없이
             if any(keyword in analysis.place_name.lower() for keyword in ['역', '대학교', '경기장', '공항', '병원', '마트', '터미널']):
                 search_strategies.append(analysis.place_name)
                 if reference_district and reference_region:
@@ -998,7 +1050,7 @@ class TripleLocationSearchService:
                     search_strategies.append(f"{region_short} {reference_district} {analysis.place_name}")
                 search_strategies.append(f"{analysis.district} {analysis.place_name}")
             
-            # 2) 🔥 식사/카페는 구체적인 지역으로 검색 (시/도 + 구/시/군)
+            # 2) 🔥 식사/카페는 반드시 정확한 지역으로 검색 (시/도 + 구/시/군)
             elif any(word in analysis.place_name.lower() for word in ['식사', '식당', '밥', '카페', '커피', '맛집']):
                 
                 if reference_district and reference_region:
@@ -1016,7 +1068,8 @@ class TripleLocationSearchService:
                     search_strategies.extend([
                         f"{region_short} {reference_district} 맛집",
                         f"{region_short} {reference_district} 식당",
-                        f"{region_short} {reference_district} 카페"
+                        f"{region_short} {reference_district} 카페",
+                        f"{reference_region} {reference_district} 맛집"  # 전체 시/도명도 시도
                     ])
                     
                     logger.info(f"🎯 참조 지역 '{region_short} {reference_district}' 기준 검색")
@@ -1027,7 +1080,7 @@ class TripleLocationSearchService:
                     search_strategies.extend([
                         f"{analysis_region_short} {analysis.district} 맛집",
                         f"{analysis_region_short} {analysis.district} 식당",
-                        f"{analysis.district} 맛집"
+                        f"{analysis.region} {analysis.district} 맛집"
                     ])
             
             # 3) 기타 일반 검색
@@ -1047,7 +1100,7 @@ class TripleLocationSearchService:
             # 중복 제거
             search_strategies = list(dict.fromkeys(search_strategies))
             
-            logger.info(f"🔍 지역 매칭 강화 검색 전략 ({len(search_strategies)}개):")
+            logger.info(f"🔍 동명이인 방지 검색 전략 ({len(search_strategies)}개):")
             for i, strategy in enumerate(search_strategies):
                 logger.info(f"   {i+1}. {strategy}")
             
@@ -1055,7 +1108,7 @@ class TripleLocationSearchService:
                 try:
                     params = {
                         "query": strategy,
-                        "size": 10,
+                        "size": 15,  # 더 많은 결과
                         "sort": "accuracy"
                     }
                     
@@ -1079,7 +1132,7 @@ class TripleLocationSearchService:
                                         if not address.strip():
                                             continue
                                         
-                                        # 🔥 개선된 지역 매칭 점수 (시/도 + 구/시/군 함께 확인)
+                                        # 🔥 개선된 지역 매칭 점수 (동명이인 방지)
                                         location_score = 0
                                         
                                         if reference_district and reference_region:
@@ -1092,14 +1145,17 @@ class TripleLocationSearchService:
                                                 reference_region
                                             ])
                                             
-                                            if reference_district in address and address_has_region:
-                                                location_score += 6  # 시/도 + 구/시/군 모두 일치 (최고점)
-                                                logger.info(f"     ✅ 완전 일치 ({reference_region_short} {reference_district})")
-                                            elif reference_district in address and not address_has_region:
+                                            # 주소에서 구/시/군 정보 확인
+                                            address_has_district = reference_district in address
+                                            
+                                            if address_has_region and address_has_district:
+                                                location_score += 10  # 🔥 시/도 + 구/시/군 모두 일치 (최고점)
+                                                logger.info(f"     ✅ 완전 지역 일치 ({reference_region_short} {reference_district})")
+                                            elif address_has_district and not address_has_region:
                                                 # 🔥 같은 구명이지만 다른 시/도 (예: 부산 동구 vs 대구 동구)
-                                                location_score -= 10  # 대폭 감점
+                                                location_score -= 20  # 대폭 감점
                                                 logger.warning(f"     ❌ 동명이인 지역! {reference_district}이지만 다른 시/도 ({address})")
-                                            elif address_has_region and reference_district not in address:
+                                            elif address_has_region and not address_has_district:
                                                 # 같은 시/도 내 다른 구/시/군
                                                 found_district = None
                                                 if reference_region in KOREA_REGIONS:
@@ -1110,10 +1166,10 @@ class TripleLocationSearchService:
                                                             break
                                                 
                                                 if found_district:
-                                                    location_score += 3  # 같은 시/도 내
+                                                    location_score += 5  # 같은 시/도 내
                                                     logger.info(f"     ✅ 같은 시/도 내 ({reference_region_short} {found_district})")
                                                 else:
-                                                    location_score += 1  # 같은 시/도이지만 구 불분명
+                                                    location_score += 2  # 같은 시/도이지만 구 불분명
                                                     logger.info(f"     ✅ 같은 시/도 ({reference_region_short})")
                                             else:
                                                 location_score += 1  # 기타 지역
@@ -1126,12 +1182,12 @@ class TripleLocationSearchService:
                                                 common_district_names = ["중구", "동구", "서구", "남구", "북구"]
                                                 
                                                 if reference_district in common_district_names:
-                                                    # 동명이인 가능성 높음 - 추가 정보로 검증
+                                                    # 동명이인 가능성 높음 - 낮은 점수
+                                                    location_score += 2
                                                     logger.warning(f"     ⚠️ 동명이인 가능 지역: {reference_district}")
-                                                    location_score += 1  # 낮은 점수
                                                 else:
                                                     # 고유한 구명 (예: "영등포구", "금정구")
-                                                    location_score += 4
+                                                    location_score += 6
                                                     logger.info(f"     ✅ 고유 구명 일치 ({reference_district})")
                                             else:
                                                 location_score += 1  # 기타
@@ -1147,18 +1203,18 @@ class TripleLocationSearchService:
                                             ])
                                             
                                             if analysis.district in address and address_has_analysis_region:
-                                                location_score += 5  # 분석 지역 완전 일치
+                                                location_score += 8  # 분석 지역 완전 일치
                                                 logger.info(f"     ✅ 분석 지역 완전 일치 ({analysis_region_short} {analysis.district})")
                                             elif analysis.district in address:
                                                 # 구명만 일치 - 동명이인 체크
                                                 common_district_names = ["중구", "동구", "서구", "남구", "북구"]
                                                 if analysis.district in common_district_names:
-                                                    location_score += 1  # 동명이인 가능성으로 낮은 점수
+                                                    location_score += 2  # 동명이인 가능성으로 낮은 점수
                                                     logger.warning(f"     ⚠️ 동명이인 가능: {analysis.district}")
                                                 else:
-                                                    location_score += 3  # 고유 구명
+                                                    location_score += 5  # 고유 구명
                                             elif address_has_analysis_region:
-                                                location_score += 2  # 시/도만 일치
+                                                location_score += 3  # 시/도만 일치
                                                 logger.info(f"     ✅ 시/도 일치 ({analysis_region_short})")
                                             else:
                                                 location_score += 1  # 기타
@@ -1167,18 +1223,18 @@ class TripleLocationSearchService:
                                         category_score = 0
                                         if any(word in strategy.lower() for word in ["맛집", "식당", "밥"]):
                                             if any(cat in category for cat in ["음식점", "식당", "레스토랑", "한식", "중식", "일식", "양식"]):
-                                                category_score += 2
+                                                category_score += 3
                                                 logger.info(f"     ✅ 식당 카테고리 일치")
                                         elif "카페" in strategy.lower():
                                             if any(cat in category for cat in ["카페", "커피", "디저트"]):
-                                                category_score += 2
+                                                category_score += 3
                                                 logger.info(f"     ✅ 카페 카테고리 일치")
                                         
                                         # 부정 키워드 (식당이 아닌 것들 필터링)
                                         negative_score = 0
                                         negative_keywords = ["학원", "병원", "의원", "약국", "은행", "부동산", "유학", "학회", "컨설팅"]
                                         if any(neg in place_name.lower() for neg in negative_keywords):
-                                            negative_score -= 5
+                                            negative_score -= 10
                                             logger.info(f"     ❌ 부정 키워드 ({place_name})")
                                         
                                         # 총점 계산
@@ -1187,7 +1243,9 @@ class TripleLocationSearchService:
                                         logger.info(f"     📊 점수: 지역={location_score} + 카테고리={category_score} + 부정={negative_score} = {total_score}")
                                         
                                         # 🔥 높은 점수 기준 (동명이인 방지)
-                                        if total_score >= 4:  # 3에서 4로 상향
+                                        min_score = 8 if reference_region and reference_district else 6
+                                        
+                                        if total_score >= min_score:
                                             result = PlaceResult(
                                                 name=place_name,
                                                 address=address,
@@ -1196,7 +1254,7 @@ class TripleLocationSearchService:
                                                 source="kakao"
                                             )
                                             
-                                            logger.info(f"🎉 Kakao 지역 매칭 성공!")
+                                            logger.info(f"🎉 Kakao 동명이인 방지 검색 성공!")
                                             logger.info(f"   🏪 장소: {result.name}")
                                             logger.info(f"   📍 주소: {result.address}")
                                             logger.info(f"   🏷️ 카테고리: {category}")
@@ -1216,7 +1274,7 @@ class TripleLocationSearchService:
         except Exception as e:
             logger.error(f"❌ Kakao 전체 검색 오류: {e}")
         
-        logger.warning(f"⚠️ Kakao 지역 매칭 검색 실패: {analysis.place_name}")
+        logger.warning(f"⚠️ Kakao 동명이인 방지 검색 실패: {analysis.place_name}")
         return None
 
     @staticmethod
@@ -1513,77 +1571,100 @@ def safe_parse_json(json_str):
             "flexibleSchedules": []
         }
 
+# app.py의 create_schedule_chain() 함수 개선
+
 def create_schedule_chain():
-    """LangChain을 사용한 일정 추출 체인 생성 - 3개 일정 강제 추출"""
+    """LangChain을 사용한 일정 추출 체인 생성 - 시간 맥락 강화"""
     current_time = int(datetime.datetime.now().timestamp() * 1000)
     
     today = datetime.datetime.now()
     tomorrow = today + datetime.timedelta(days=1)
     day_after_tomorrow = today + datetime.timedelta(days=2)
     
+    # 🔥 현재 실제 시간 정보 추가
+    actual_now = datetime.datetime.now()
+    current_hour = actual_now.hour
+    
     template = """다음 음성 메시지에서 **모든 일정 정보**를 빠짐없이 추출하여 JSON 형식으로 반환해주세요.
 
 음성 메시지: {input}
 
 현재 날짜: {today_date}
+현재 실제 시간: {current_hour}시 ({current_time_desc})
 내일: {tomorrow_date}
 모레: {day_after_tomorrow_date}
 
+**🔥 중요한 시간 맥락 규칙**:
+1. "저녁", "dinner" → 18:00~20:00 (저녁 시간)
+2. "점심", "lunch" → 12:00~14:00 (점심 시간)  
+3. "아침", "morning" → 08:00~10:00 (아침 시간)
+4. 현재 시간이 {current_hour}시이므로, 일반적인 "식사"는 다음 식사 시간으로 설정
+5. "중간에"는 앞뒤 일정 사이 시간으로 설정
+
 **중요**: 메시지에 언급된 모든 장소와 활동을 개별 일정으로 추출하세요!
 
-예시 입력: "제주공항에서 만나고, 성산일출봉에서 모임하고, 흑돼지 맛집에서 회식할거야"
-→ 3개 일정: 1) 제주공항 2) 성산일출봉 3) 흑돼지 맛집 회식
+예시 입력: "부산역에서 장전역까지 가는데, 중간에 저녁먹고싶어"
+→ 3개 일정: 1) 부산역 2) 저녁 식사 (18:00) 3) 장전역
 
 다음 JSON 형식으로 반환:
 {{
   "fixedSchedules": [
     {{
       "id": "{current_time}",
-      "name": "첫 번째 장소명",
+      "name": "부산역",
       "type": "FIXED",
       "duration": 60,
       "priority": 1,
       "location": "",
-      "latitude": 33.5,
-      "longitude": 126.5,
-      "startTime": "2025-05-26T10:00:00",
-      "endTime": "2025-05-26T11:00:00"
+      "latitude": 35.1,
+      "longitude": 129.0,
+      "startTime": "2025-06-01T10:00:00",
+      "endTime": "2025-06-01T11:00:00"
     }},
     {{
       "id": "{current_time_2}",
-      "name": "두 번째 장소명",
-      "type": "FIXED",
-      "duration": 60,
+      "name": "저녁 식사",
+      "type": "FIXED", 
+      "duration": 120,
       "priority": 2,
       "location": "",
-      "latitude": 33.4,
-      "longitude": 126.9,
-      "startTime": "2025-05-26T12:00:00",
-      "endTime": "2025-05-26T13:00:00"
+      "latitude": 35.1,
+      "longitude": 129.0,
+      "startTime": "2025-06-01T18:00:00",
+      "endTime": "2025-06-01T20:00:00"
     }},
     {{
       "id": "{current_time_3}",
-      "name": "세 번째 장소명 (회식/식사/모임)",
+      "name": "장전역",
       "type": "FIXED",
-      "duration": 120,
+      "duration": 60,
       "priority": 3,
       "location": "",
-      "latitude": 33.3,
-      "longitude": 126.8,
-      "startTime": "2025-05-26T18:00:00",
-      "endTime": "2025-05-26T20:00:00"
+      "latitude": 35.2,
+      "longitude": 129.1,
+      "startTime": "2025-06-01T20:30:00",
+      "endTime": "2025-06-01T21:30:00"
     }}
   ],
   "flexibleSchedules": []
 }}
 
 주의사항:
-1. **모든 언급된 장소를 개별 일정으로 추출**
-2. 회식/식사는 duration을 120분으로 설정
-3. 시간 간격을 두고 배치 (최소 1시간 간격)
-4. "주말"은 토요일(26일)로 해석
-5. JSON만 반환하고 다른 텍스트 포함 금지
+1. **시간 맥락을 정확히 반영**: "저녁" → 18:00, "점심" → 12:00
+2. **"중간에"는 순서상 중간 시간**으로 배치
+3. 이동시간 고려하여 최소 30분 간격 유지
+4. JSON만 반환하고 다른 텍스트 포함 금지
 """
+    
+    # 현재 시간대 설명 추가
+    if 6 <= current_hour < 12:
+        current_time_desc = "오전"
+    elif 12 <= current_hour < 18:
+        current_time_desc = "오후"
+    elif 18 <= current_hour < 22:
+        current_time_desc = "저녁"
+    else:
+        current_time_desc = "밤"
     
     prompt = PromptTemplate(
         template=template,
@@ -1594,7 +1675,9 @@ def create_schedule_chain():
             "current_time_3": str(current_time + 2),
             "today_date": today.strftime("%Y-%m-%d"),
             "tomorrow_date": tomorrow.strftime("%Y-%m-%d"),
-            "day_after_tomorrow_date": day_after_tomorrow.strftime("%Y-%m-%d")
+            "day_after_tomorrow_date": day_after_tomorrow.strftime("%Y-%m-%d"),
+            "current_hour": current_hour,
+            "current_time_desc": current_time_desc
         }
     )
     
