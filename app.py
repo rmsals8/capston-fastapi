@@ -273,9 +273,10 @@ class AddressQualityChecker:
 class TripleLocationSearchService:
     """Foursquare + Kakao + Google 3중 위치 검색 서비스"""
     
+    # app.py의 TripleLocationSearchService 클래스 내부
     @staticmethod
-    async def analyze_location_with_gpt(text: str, reference_location: Optional[str] = None) -> LocationAnalysis:
-        """GPT로 정확한 지역과 장소 분석 - 참조 위치 추가"""
+    async def analyze_location_with_gpt(text: str, reference_location: Optional[str] = None, route_context: Optional[str] = None) -> LocationAnalysis:
+        """GPT로 정확한 지역과 장소 분석 - 경로 맥락과 참조 위치 추가"""
         
         # set을 list로 변환하여 JSON 직렬화 가능하게 만들기
         korea_regions_list = {region: list(districts) for region, districts in KOREA_REGIONS.items()}
@@ -287,38 +288,95 @@ class TripleLocationSearchService:
             reference_context = f"\n참조 위치 (이전 일정): {reference_location}"
             reference_context += "\n'근처', '주변' 같은 표현이 있으면 이 참조 위치 근처에서 검색하세요."
         
+        # 🔥 경로 맥락 추가 (새로운 기능)
+        route_context_text = ""
+        if route_context:
+            route_context_text = f"\n경로 정보: {route_context}"
+            route_context_text += "\n'중간에' 같은 표현이 있으면 경로상의 중간 지점에서 검색하세요."
+            
+            # 경로에서 지역 추출하여 중간 지점 지역 결정
+            import re
+            route_pattern = r'(.+?)에서\s*(.+?)까지'
+            match = re.search(route_pattern, route_context)
+            if match:
+                start_place = match.group(1).strip()
+                end_place = match.group(2).strip()
+                
+                # 출발지와 도착지 사이의 중간 지역 결정
+                start_region = None
+                end_region = None
+                
+                # 서울 지역 매핑
+                seoul_areas = {
+                    "신길역": "영등포구",
+                    "서울역": "중구",
+                    "강남역": "강남구",
+                    "홍대": "마포구",
+                    "이태원": "용산구",
+                    "명동": "중구",
+                    "잠실": "송파구",
+                    "강동": "강동구"
+                }
+                
+                for place, district in seoul_areas.items():
+                    if place in start_place:
+                        start_region = district
+                    if place in end_place:
+                        end_region = district
+                
+                # 중간 지역 결정 로직
+                if start_region and end_region:
+                    # 영등포구 → 중구 경로면 중간은 용산구 또는 마포구
+                    if start_region == "영등포구" and end_region == "중구":
+                        route_context_text += f"\n중간 지점 추천 지역: 용산구, 마포구 (경로상 중간)"
+                    elif start_region == "중구" and end_region == "강남구":
+                        route_context_text += f"\n중간 지점 추천 지역: 용산구, 서초구 (경로상 중간)"
+                    else:
+                        route_context_text += f"\n중간 지점 추천 지역: {start_region}과 {end_region} 사이"
+
         prompt = f"""
-다음 텍스트에서 한국의 정확한 지역 정보와 장소를 분석해주세요.
+    다음 텍스트에서 한국의 정확한 지역 정보와 장소를 분석해주세요.
 
-텍스트: "{text}"{reference_context}
+    텍스트: "{text}"{reference_context}{route_context_text}
 
-한국 지역 정보:
-{regions_text}
+    한국 지역 정보:
+    {regions_text}
 
-**중요**: 
-1. "근처", "주변" 같은 표현이 있으면 참조 위치와 같은 지역으로 설정하세요.
-2. 모호한 표현("카페", "식당")도 참조 위치 근처에서 검색하도록 지역을 설정하세요.
-3. 구체적인 장소명(예: 울산대학교, 문수월드컵경기장)은 정확한 위치를 우선하세요.
+    **중요 분석 규칙**: 
+    1. "근처", "주변" 같은 표현이 있으면 참조 위치와 같은 지역으로 설정하세요.
+    2. "중간에" 같은 표현이 있으면 경로상의 중간 지점 지역에서 검색하세요.
+    3. 모호한 표현("카페", "식당")도 참조 위치나 경로 근처에서 검색하도록 지역을 설정하세요.
+    4. 구체적인 장소명(예: 울산대학교, 문수월드컵경기장)은 정확한 위치를 우선하세요.
+    5. 경로 맥락이 있으면 지리적으로 효율적인 중간 지점을 선택하세요.
 
-JSON 형식으로 응답:
-{{
-  "place_name": "추출된 장소명",
-  "region": "시/도 (참조 위치 고려)",
-  "district": "시/군/구 (참조 위치 고려)",
-  "category": "장소 카테고리",
-  "search_keywords": ["검색에 사용할 키워드들", "지역명+장소명", "카테고리명"]
-}}
-"""
+    **지리적 효율성 고려사항**:
+    - 신길역(영등포구) → 서울역(중구): 중간은 용산구, 마포구
+    - 서울역(중구) → 강남역(강남구): 중간은 용산구, 서초구  
+    - 지하철 노선을 고려한 접근성 우선
+
+    JSON 형식으로 응답:
+    {{
+    "place_name": "추출된 장소명 (맥락 고려)",
+    "region": "시/도 (경로나 참조 위치 고려)",
+    "district": "시/군/구 (경로나 참조 위치 고려)",
+    "category": "장소 카테고리",
+    "search_keywords": ["검색에 사용할 키워드들", "지역명+장소명", "카테고리명"],
+    "geographical_context": "지리적 맥락 설명"
+    }}
+    """
 
         try:
             response = openai_client.chat.completions.create(
                 model="gpt-4-turbo",
                 messages=[
-                    {"role": "system", "content": "당신은 한국 지역 정보 전문가입니다. 참조 위치를 고려하여 '근처', '주변' 표현을 정확하게 해석하세요."},
+                    {
+                        "role": "system", 
+                        "content": "당신은 한국 지역 정보 전문가입니다. 경로 맥락과 참조 위치를 고려하여 '중간에', '근처', '주변' 표현을 지리적으로 효율적으로 해석하세요. 특히 지하철 노선과 실제 이동 경로를 고려한 중간 지점을 제안하세요."
+                    },
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1,
-                max_tokens=300,
+                max_tokens=500,  # 더 자세한 응답을 위해 토큰 증가
             )
 
             content = response.choices[0].message.content.strip()
@@ -326,30 +384,56 @@ JSON 형식으로 응답:
                 content = content.replace("```json", "").replace("```", "").strip()
             
             data = json.loads(content)
+            
+            # 응답에 geographical_context가 없으면 기본값 추가
+            if "geographical_context" not in data:
+                data["geographical_context"] = "기본 분석"
+            
+            logger.info(f"🧠 GPT 지역 분석 완료: {data.get('region')} {data.get('district')} - {data.get('place_name')}")
+            logger.info(f"🗺️ 지리적 맥락: {data.get('geographical_context')}")
+            
             return LocationAnalysis(**data)
             
         except Exception as e:
             logger.error(f"❌ GPT 지역 분석 실패: {e}")
-            # 참조 위치가 있으면 같은 지역으로 기본값 설정
+            
+            # 참조 위치나 경로 맥락이 있으면 같은 지역으로 기본값 설정
+            default_region = "서울특별시"
+            default_district = "중구"
+            
             if reference_location:
                 # 참조 위치에서 지역 추출 시도
                 for region in ["울산", "서울", "부산", "대구", "인천", "광주", "대전"]:
                     if region in reference_location:
-                        return LocationAnalysis(
-                            place_name=text,
-                            region=f"{region}광역시" if region != "서울" else "서울특별시",
-                            district="중구",  # 기본값
-                            category="장소",
-                            search_keywords=[f"{region} {text}", text]
-                        )
+                        if region == "서울":
+                            default_region = "서울특별시"
+                        else:
+                            default_region = f"{region}광역시"
+                        break
+                
+                # 구 정보 추출 시도
+                for district in ["중구", "영등포구", "강남구", "마포구", "용산구"]:
+                    if district in reference_location:
+                        default_district = district
+                        break
+            
+            elif route_context:
+                # 경로 맥락에서 지역 추출
+                if "서울" in route_context:
+                    default_region = "서울특별시"
+                    if "영등포" in route_context and "중구" in route_context:
+                        default_district = "용산구"  # 중간 지점
+            
+            logger.info(f"🔄 기본값 사용: {default_region} {default_district}")
             
             # 기본값 반환
             return LocationAnalysis(
                 place_name=text,
-                region="서울특별시",
-                district="중구",
+                region=default_region,
+                district=default_district,
                 category="장소",
-                search_keywords=[text]
+                search_keywords=[f"{default_district} {text}", text],
+                geographical_context="기본값 적용"
             )
 
     @staticmethod
@@ -845,60 +929,134 @@ JSON 형식으로 응답:
         return None
 
 
+# app.py의 search_kakao 함수 수정 - KOREA_REGIONS 활용
+
     @staticmethod
-    async def search_kakao(analysis: LocationAnalysis) -> Optional[PlaceResult]:
-        """1순위: Kakao API 검색 - 강화된 버전"""
+    async def search_kakao(analysis: LocationAnalysis, reference_schedules: List[Dict] = None) -> Optional[PlaceResult]:
+        """1순위: Kakao API 검색 - 지역 매칭 로직 개선 (동명이인 방지)"""
         if not KAKAO_REST_API_KEY:
             logger.warning("❌ Kakao API 키가 없습니다")
             return None
             
         logger.info(f"🔍 1순위 Kakao 검색: {analysis.place_name}")
         
+        # 🔥 KOREA_REGIONS에서 전국 구/시/군 정보 추출
+        all_districts = []
+        for region, districts in KOREA_REGIONS.items():
+            all_districts.extend(list(districts))
+        
+        logger.info(f"📍 전국 구/시/군 {len(all_districts)}개 지역 대응")
+        
+        # 🔥 참조 위치에서 지역 정보 추출 (시/도 + 구/시/군)
+        reference_region = None
+        reference_district = None
+        reference_dong = None
+        
+        if reference_schedules:
+            for ref_schedule in reference_schedules:
+                ref_location = ref_schedule.get("location", "")
+                if ref_location:
+                    logger.info(f"📍 참조 위치 분석: {ref_location}")
+                    
+                    # 시/도 정보 추출
+                    for region in KOREA_REGIONS.keys():
+                        region_short = region.replace('특별시', '').replace('광역시', '').replace('특별자치시', '').replace('특별자치도', '').replace('도', '')
+                        if region_short in ref_location or region in ref_location:
+                            reference_region = region
+                            logger.info(f"   📍 참조 시/도: {region}")
+                            break
+                    
+                    # 구/시/군 정보 추출
+                    for district in all_districts:
+                        if district in ref_location:
+                            reference_district = district
+                            logger.info(f"   📍 참조 구/시/군: {district}")
+                            break
+                    
+                    # 동 정보도 추출 시도
+                    import re
+                    dong_match = re.search(r'(\w+동)', ref_location)
+                    if dong_match:
+                        reference_dong = dong_match.group(1)
+                        logger.info(f"   📍 참조 동: {reference_dong}")
+                    
+                    break
+        
         try:
             url = "https://dapi.kakao.com/v2/local/search/keyword.json"
             headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
             
-            # 검색 전략 - 구체적인 것부터 일반적인 것까지
+            # 🔥 전국 대응 검색 전략
             search_strategies = []
             
-            # 1) 구체적 장소명 (대학교, 경기장 등)
-            if any(keyword in analysis.place_name.lower() for keyword in ['대학교', '경기장', '월드컵', '공항', '역']):
+            # 1) 구체적 장소명 (역, 대학교 등)은 그대로
+            if any(keyword in analysis.place_name.lower() for keyword in ['역', '대학교', '경기장', '공항', '병원', '마트', '터미널']):
                 search_strategies.append(analysis.place_name)
-                search_strategies.append(f"{analysis.region.replace('광역시', '').replace('특별시', '')} {analysis.place_name}")
+                if reference_district and reference_region:
+                    # 시/도 + 구/시/군 함께 검색
+                    region_short = reference_region.replace('특별시', '').replace('광역시', '').replace('도', '')
+                    search_strategies.append(f"{region_short} {reference_district} {analysis.place_name}")
+                search_strategies.append(f"{analysis.district} {analysis.place_name}")
             
-            # 2) 카테고리별 검색
-            place_lower = analysis.place_name.lower()
-            region_name = analysis.region.replace('광역시', '').replace('특별시', '')
+            # 2) 🔥 식사/카페는 구체적인 지역으로 검색 (시/도 + 구/시/군)
+            elif any(word in analysis.place_name.lower() for word in ['식사', '식당', '밥', '카페', '커피', '맛집']):
+                
+                if reference_district and reference_region:
+                    region_short = reference_region.replace('특별시', '').replace('광역시', '').replace('특별자치시', '').replace('특별자치도', '').replace('도', '')
+                    
+                    # A) 동 단위 검색 (시/도 + 구/시/군 + 동)
+                    if reference_dong:
+                        search_strategies.extend([
+                            f"{region_short} {reference_district} {reference_dong} 맛집",
+                            f"{region_short} {reference_district} {reference_dong} 식당",
+                            f"{reference_district} {reference_dong} 맛집"
+                        ])
+                    
+                    # B) 구/시/군 + 카테고리 검색 (시/도 포함)
+                    search_strategies.extend([
+                        f"{region_short} {reference_district} 맛집",
+                        f"{region_short} {reference_district} 식당",
+                        f"{region_short} {reference_district} 카페"
+                    ])
+                    
+                    logger.info(f"🎯 참조 지역 '{region_short} {reference_district}' 기준 검색")
+                    
+                else:
+                    # 참조 없으면 analysis 정보 활용
+                    analysis_region_short = analysis.region.replace('특별시', '').replace('광역시', '').replace('도', '')
+                    search_strategies.extend([
+                        f"{analysis_region_short} {analysis.district} 맛집",
+                        f"{analysis_region_short} {analysis.district} 식당",
+                        f"{analysis.district} 맛집"
+                    ])
             
-            if any(word in place_lower for word in ['식당', 'restaurant', '맛집']):
-                search_strategies.extend([
-                    f"{region_name} {analysis.district} 맛집",
-                    f"{region_name} {analysis.district} 식당",
-                    f"{region_name} 맛집",
-                    f"{region_name} 식당"
-                ])
-            elif any(word in place_lower for word in ['카페', 'cafe', '커피']):
-                search_strategies.extend([
-                    f"{region_name} {analysis.district} 카페",
-                    f"{region_name} {analysis.district} 커피",
-                    f"{region_name} 카페",
-                    f"{region_name} 커피숍"
-                ])
+            # 3) 기타 일반 검색
             else:
-                # 일반 검색
-                search_strategies.extend([
-                    f"{region_name} {analysis.place_name}",
-                    f"{region_name} {analysis.district} {analysis.place_name}"
-                ])
+                if reference_district and reference_region:
+                    region_short = reference_region.replace('특별시', '').replace('광역시', '').replace('도', '')
+                    search_strategies.extend([
+                        f"{region_short} {reference_district} {analysis.place_name}",
+                        f"{analysis.place_name}"
+                    ])
+                else:
+                    search_strategies.extend([
+                        f"{analysis.district} {analysis.place_name}",
+                        f"{analysis.place_name}"
+                    ])
             
-            logger.info(f"🔍 Kakao 검색 전략: {search_strategies}")
+            # 중복 제거
+            search_strategies = list(dict.fromkeys(search_strategies))
+            
+            logger.info(f"🔍 지역 매칭 강화 검색 전략 ({len(search_strategies)}개):")
+            for i, strategy in enumerate(search_strategies):
+                logger.info(f"   {i+1}. {strategy}")
             
             for strategy in search_strategies:
                 try:
                     params = {
                         "query": strategy,
-                        "size": 15,  # 더 많은 결과
-                        "sort": "accuracy"  # 정확도순
+                        "size": 10,
+                        "sort": "accuracy"
                     }
                     
                     logger.info(f"🔍 Kakao 검색어: '{strategy}'")
@@ -916,47 +1074,120 @@ JSON 형식으로 응답:
                                         address = place.get("road_address_name") or place.get("address_name", "")
                                         category = place.get("category_name", "")
                                         
-                                        logger.info(f"   후보 {i+1}: {place_name} - {address} ({category})")
+                                        logger.info(f"   후보 {i+1}: {place_name} - {address}")
                                         
                                         if not address.strip():
                                             continue
                                         
-                                        # 지역 일치 확인
-                                        region_keywords = [
-                                            analysis.region.replace('광역시', '').replace('특별시', ''),
-                                            analysis.district
-                                        ]
-                                        region_match = any(keyword in address for keyword in region_keywords if keyword)
+                                        # 🔥 개선된 지역 매칭 점수 (시/도 + 구/시/군 함께 확인)
+                                        location_score = 0
                                         
-                                        # 카테고리 적합성 확인
-                                        category_match = False
-                                        if "식당" in analysis.place_name.lower() or "restaurant" in analysis.category.lower():
-                                            category_match = any(word in category for word in ["음식점", "식당", "레스토랑", "한식", "중식", "일식", "양식", "카페"])
-                                        elif "카페" in analysis.place_name.lower() or "cafe" in analysis.category.lower():
-                                            category_match = any(word in category for word in ["카페", "커피", "디저트", "베이커리"])
-                                        elif "대학교" in analysis.place_name.lower():
-                                            category_match = any(word in category for word in ["대학교", "학교", "교육"])
-                                        elif "경기장" in analysis.place_name.lower():
-                                            category_match = any(word in category for word in ["스포츠", "경기장", "체육"])
+                                        if reference_district and reference_region:
+                                            # 📍 참조 지역이 있을 때: 시/도 + 구/시/군 모두 확인
+                                            reference_region_short = reference_region.replace('특별시', '').replace('광역시', '').replace('특별자치시', '').replace('특별자치도', '').replace('도', '')
+                                            
+                                            # 주소에서 시/도 정보 확인
+                                            address_has_region = any(region_name in address for region_name in [
+                                                reference_region_short, 
+                                                reference_region
+                                            ])
+                                            
+                                            if reference_district in address and address_has_region:
+                                                location_score += 6  # 시/도 + 구/시/군 모두 일치 (최고점)
+                                                logger.info(f"     ✅ 완전 일치 ({reference_region_short} {reference_district})")
+                                            elif reference_district in address and not address_has_region:
+                                                # 🔥 같은 구명이지만 다른 시/도 (예: 부산 동구 vs 대구 동구)
+                                                location_score -= 10  # 대폭 감점
+                                                logger.warning(f"     ❌ 동명이인 지역! {reference_district}이지만 다른 시/도 ({address})")
+                                            elif address_has_region and reference_district not in address:
+                                                # 같은 시/도 내 다른 구/시/군
+                                                found_district = None
+                                                if reference_region in KOREA_REGIONS:
+                                                    region_districts = KOREA_REGIONS[reference_region]
+                                                    for district in region_districts:
+                                                        if district in address:
+                                                            found_district = district
+                                                            break
+                                                
+                                                if found_district:
+                                                    location_score += 3  # 같은 시/도 내
+                                                    logger.info(f"     ✅ 같은 시/도 내 ({reference_region_short} {found_district})")
+                                                else:
+                                                    location_score += 1  # 같은 시/도이지만 구 불분명
+                                                    logger.info(f"     ✅ 같은 시/도 ({reference_region_short})")
+                                            else:
+                                                location_score += 1  # 기타 지역
+                                                
+                                        elif reference_district:
+                                            # 참조 구/시/군만 있을 때 (시/도 정보 없음)
+                                            if reference_district in address:
+                                                # 🔥 구명만 일치하는 경우 추가 검증 필요
+                                                # 한국에서 동명이인 가능성 높은 구명들
+                                                common_district_names = ["중구", "동구", "서구", "남구", "북구"]
+                                                
+                                                if reference_district in common_district_names:
+                                                    # 동명이인 가능성 높음 - 추가 정보로 검증
+                                                    logger.warning(f"     ⚠️ 동명이인 가능 지역: {reference_district}")
+                                                    location_score += 1  # 낮은 점수
+                                                else:
+                                                    # 고유한 구명 (예: "영등포구", "금정구")
+                                                    location_score += 4
+                                                    logger.info(f"     ✅ 고유 구명 일치 ({reference_district})")
+                                            else:
+                                                location_score += 1  # 기타
+                                                
                                         else:
-                                            category_match = True  # 기타는 일단 허용
+                                            # 참조 지역 없으면 analysis 지역과 비교
+                                            analysis_region_short = analysis.region.replace('특별시', '').replace('광역시', '').replace('도', '')
+                                            
+                                            # 시/도 + 구/시/군 확인
+                                            address_has_analysis_region = any(region_name in address for region_name in [
+                                                analysis_region_short,
+                                                analysis.region
+                                            ])
+                                            
+                                            if analysis.district in address and address_has_analysis_region:
+                                                location_score += 5  # 분석 지역 완전 일치
+                                                logger.info(f"     ✅ 분석 지역 완전 일치 ({analysis_region_short} {analysis.district})")
+                                            elif analysis.district in address:
+                                                # 구명만 일치 - 동명이인 체크
+                                                common_district_names = ["중구", "동구", "서구", "남구", "북구"]
+                                                if analysis.district in common_district_names:
+                                                    location_score += 1  # 동명이인 가능성으로 낮은 점수
+                                                    logger.warning(f"     ⚠️ 동명이인 가능: {analysis.district}")
+                                                else:
+                                                    location_score += 3  # 고유 구명
+                                            elif address_has_analysis_region:
+                                                location_score += 2  # 시/도만 일치
+                                                logger.info(f"     ✅ 시/도 일치 ({analysis_region_short})")
+                                            else:
+                                                location_score += 1  # 기타
                                         
-                                        # 부정적 키워드 필터
-                                        negative_keywords = ["학원", "병원", "의원", "클리닉", "약국"]
-                                        is_negative = any(neg in place_name for neg in negative_keywords)
+                                        # 카테고리 점수
+                                        category_score = 0
+                                        if any(word in strategy.lower() for word in ["맛집", "식당", "밥"]):
+                                            if any(cat in category for cat in ["음식점", "식당", "레스토랑", "한식", "중식", "일식", "양식"]):
+                                                category_score += 2
+                                                logger.info(f"     ✅ 식당 카테고리 일치")
+                                        elif "카페" in strategy.lower():
+                                            if any(cat in category for cat in ["카페", "커피", "디저트"]):
+                                                category_score += 2
+                                                logger.info(f"     ✅ 카페 카테고리 일치")
                                         
-                                        # 점수 계산
-                                        score = 0
-                                        if region_match:
-                                            score += 2
-                                        if category_match:
-                                            score += 1
-                                        if is_negative:
-                                            score -= 2
+                                        # 부정 키워드 (식당이 아닌 것들 필터링)
+                                        negative_score = 0
+                                        negative_keywords = ["학원", "병원", "의원", "약국", "은행", "부동산", "유학", "학회", "컨설팅"]
+                                        if any(neg in place_name.lower() for neg in negative_keywords):
+                                            negative_score -= 5
+                                            logger.info(f"     ❌ 부정 키워드 ({place_name})")
                                         
-                                        logger.info(f"     지역일치: {region_match}, 카테고리적합: {category_match}, 부정적: {is_negative}, 점수: {score}")
+                                        # 총점 계산
+                                        total_score = location_score + category_score + negative_score
                                         
-                                        if score >= 1:  # 최소 점수
+                                        logger.info(f"     📊 점수: 지역={location_score} + 카테고리={category_score} + 부정={negative_score} = {total_score}")
+                                        
+                                        # 🔥 높은 점수 기준 (동명이인 방지)
+                                        if total_score >= 4:  # 3에서 4로 상향
                                             result = PlaceResult(
                                                 name=place_name,
                                                 address=address,
@@ -965,25 +1196,27 @@ JSON 형식으로 응답:
                                                 source="kakao"
                                             )
                                             
-                                            logger.info(f"✅ Kakao 검색 성공: {result.name}")
+                                            logger.info(f"🎉 Kakao 지역 매칭 성공!")
+                                            logger.info(f"   🏪 장소: {result.name}")
                                             logger.info(f"   📍 주소: {result.address}")
                                             logger.info(f"   🏷️ 카테고리: {category}")
+                                            logger.info(f"   🎯 검색어: {strategy}")
                                             return result
                                     
-                                    logger.info(f"⚠️ Kakao 검색어 '{strategy}' - 적절한 결과 없음")
+                                    logger.info(f"⚠️ 검색어 '{strategy}' - 기준 미달 (최고점: {max([total_score for _ in range(1)] or [0])})")
                                 else:
-                                    logger.info(f"⚠️ Kakao 검색어 '{strategy}' - 결과 없음")
+                                    logger.info(f"⚠️ 검색어 '{strategy}' - 결과 없음")
                             else:
                                 logger.warning(f"⚠️ Kakao API 오류: {response.status}")
                                 
                 except Exception as e:
-                    logger.error(f"❌ Kakao 검색어 '{strategy}' 오류: {e}")
+                    logger.error(f"❌ 검색어 '{strategy}' 오류: {e}")
                     continue
                     
         except Exception as e:
-            logger.error(f"❌ Kakao 검색 전체 오류: {e}")
+            logger.error(f"❌ Kakao 전체 검색 오류: {e}")
         
-        logger.warning(f"⚠️ Kakao 모든 검색 실패: {analysis.place_name}")
+        logger.warning(f"⚠️ Kakao 지역 매칭 검색 실패: {analysis.place_name}")
         return None
 
     @staticmethod

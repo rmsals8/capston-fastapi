@@ -76,8 +76,9 @@ def infer_time_expressions(time_chain, voice_input: str, current_schedules: List
             "reasoning": f"시간 추론 실패: {str(e)}"
         }
 
+# scheduler/time_inference.py의 apply_time_inference 함수 전체
 def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict[str, Any]) -> Dict[str, Any]:
-    """시간 추론 결과를 일정에 적용하는 함수 개선"""
+    """시간 추론 결과를 일정에 적용하는 함수 개선 - 맥락 고려"""
     logger.info("시간 추론 적용 시작")
     logger.info(f"입력 일정 데이터: 고정={len(extracted_schedules.get('fixedSchedules', []))}개, 유연={len(extracted_schedules.get('flexibleSchedules', []))}개")
     
@@ -87,6 +88,103 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
     
     fixed_schedules = extracted_schedules.get("fixedSchedules", [])
     logger.info(f"고정 일정 수: {len(fixed_schedules)}")
+    
+    # 🔥 시간 맥락 분석 개선 - 음성 입력과 현재 시간을 고려한 식사 시간 추정
+    def determine_meal_time_from_context(voice_input: str, current_time: datetime.datetime) -> Dict[str, Any]:
+        """음성 입력의 맥락에서 식사 시간 추정 - 실제 현재 시간 기준"""
+        voice_lower = voice_input.lower()
+        
+        # 🔥 실제 현재 시간 사용 (참조 시간이 아님!)
+        actual_current_hour = datetime.datetime.now().hour
+        
+        logger.info(f"🍽️ 식사 시간 맥락 분석: 실제현재시간={actual_current_hour}시, 참조시간={current_time.hour}시, 입력='{voice_lower}'")
+        
+        # 명시적 시간 표현 체크
+        if any(time_word in voice_lower for time_word in ["아침", "morning"]):
+            result = {
+                "meal_type": "아침 식사",
+                "start_hour": 8,
+                "duration": 60,
+                "confidence": 0.9
+            }
+            logger.info(f"   명시적 '아침' 표현 감지")
+        elif any(time_word in voice_lower for time_word in ["점심", "lunch"]):
+            result = {
+                "meal_type": "점심 식사", 
+                "start_hour": 12,
+                "duration": 90,
+                "confidence": 0.9
+            }
+            logger.info(f"   명시적 '점심' 표현 감지")
+        elif any(time_word in voice_lower for time_word in ["저녁", "dinner"]):
+            # 🔥 "저녁"이지만 실제 현재 시간대에 따라 유연하게 조정
+            if 6 <= actual_current_hour < 11:  # 실제 아침 시간대
+                result = {
+                    "meal_type": "아침 식사",
+                    "start_hour": max(actual_current_hour + 1, 8),
+                    "duration": 60,
+                    "confidence": 0.7
+                }
+                logger.info(f"   '저녁'이지만 실제 아침 시간대({actual_current_hour}시)이므로 '아침 식사'로 조정")
+            elif 11 <= actual_current_hour < 15:  # 실제 점심 시간대
+                result = {
+                    "meal_type": "점심 식사", 
+                    "start_hour": max(actual_current_hour, 12),
+                    "duration": 90,
+                    "confidence": 0.8
+                }
+                logger.info(f"   '저녁'이지만 실제 점심 시간대({actual_current_hour}시)이므로 '점심 식사'로 조정")
+            elif 15 <= actual_current_hour < 18:  # 실제 오후 시간대
+                result = {
+                    "meal_type": "간식 시간",
+                    "start_hour": max(actual_current_hour + 1, 16),
+                    "duration": 60,
+                    "confidence": 0.6
+                }
+                logger.info(f"   '저녁'이지만 실제 오후 시간대({actual_current_hour}시)이므로 '간식 시간'으로 조정")
+            else:  # 실제 저녁 시간대
+                result = {
+                    "meal_type": "저녁 식사",
+                    "start_hour": max(actual_current_hour + 1, 18),
+                    "duration": 120,
+                    "confidence": 0.9
+                }
+                logger.info(f"   실제 저녁 시간대({actual_current_hour}시)이므로 '저녁 식사' 유지")
+        else:
+            # 🔥 일반적인 "식사", "밥" 등은 실제 현재 시간 기준으로 다음 식사 시간 추정
+            if actual_current_hour < 9:
+                result = {
+                    "meal_type": "아침 식사", 
+                    "start_hour": 8, 
+                    "duration": 60,
+                    "confidence": 0.7
+                }
+            elif actual_current_hour < 13:
+                result = {
+                    "meal_type": "점심 식사", 
+                    "start_hour": 12, 
+                    "duration": 90,
+                    "confidence": 0.8
+                }
+            elif actual_current_hour < 17:
+                result = {
+                    "meal_type": "간식 시간", 
+                    "start_hour": 15, 
+                    "duration": 60,
+                    "confidence": 0.6
+                }
+            else:
+                result = {
+                    "meal_type": "저녁 식사", 
+                    "start_hour": 18, 
+                    "duration": 120,
+                    "confidence": 0.8
+                }
+            
+            logger.info(f"   일반 식사 표현으로 실제 시간({actual_current_hour}시) 기준 '{result['meal_type']}' 선택")
+        
+        logger.info(f"   최종 결정: {result['meal_type']}, {result['start_hour']}시, {result['duration']}분, 신뢰도: {result['confidence']}")
+        return result
     
     # 시간 추론 결과 획득
     time_info = infer_time_expressions(time_chain, voice_input, fixed_schedules)
@@ -116,7 +214,10 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
     else:
         logger.info(f"고정 일정 없음, 현재 시간 사용: {reference_time}")
 
-    # 상대적 시간 표현 처리 (더 상세한 매핑)
+    # 🔥 개선된 시간 키워드 매핑 (맥락 고려)
+    meal_context = determine_meal_time_from_context(voice_input, reference_time)
+    
+    # 기본 시간 키워드 설정
     time_keywords = {
         "점심": {
             "start": reference_time.replace(hour=12, minute=0), 
@@ -124,9 +225,15 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
             "duration": 90,
             "confidence": 0.8
         },
+        "오후": {
+            "start": reference_time.replace(hour=14, minute=0), 
+            "end": reference_time.replace(hour=16, minute=0),
+            "duration": 120,
+            "confidence": 0.6
+        },
         "그 다음": {
-            "start": reference_time + datetime.timedelta(minutes=120),  # 더 늦게 시작
-            "end": reference_time + datetime.timedelta(minutes=180),  # 시간 간격 확장
+            "start": reference_time + datetime.timedelta(minutes=120),
+            "end": reference_time + datetime.timedelta(minutes=180),
             "duration": 60,
             "confidence": 0.7
         },
@@ -134,19 +241,30 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
             "sequence": "middle",
             "confidence": 0.7
         },
-        "오후": {
-            "start": reference_time.replace(hour=14, minute=0), 
-            "end": reference_time.replace(hour=16, minute=0),
-            "duration": 120,
-            "confidence": 0.6
-        },
-        "저녁": {
-            "start": reference_time.replace(hour=18, minute=0), 
-            "end": reference_time.replace(hour=19, minute=30),
-            "duration": 90,
-            "confidence": 0.7
-        },
     }
+    
+    # 🔥 맥락 고려 식사 키워드 추가
+    meal_keywords = ["저녁", "식사", "밥", "먹", "회식"]
+    for keyword in meal_keywords:
+        if keyword in voice_input.lower():
+            # 맥락에 따른 동적 시간 설정
+            meal_start_time = reference_time.replace(
+                hour=meal_context["start_hour"], 
+                minute=0, 
+                second=0, 
+                microsecond=0
+            )
+            meal_end_time = meal_start_time + datetime.timedelta(minutes=meal_context["duration"])
+            
+            time_keywords[keyword] = {
+                "start": meal_start_time,
+                "end": meal_end_time,
+                "duration": meal_context["duration"],
+                "confidence": meal_context["confidence"],
+                "meal_type": meal_context["meal_type"]  # 추가 정보
+            }
+            
+            logger.info(f"🍽️ 식사 키워드 '{keyword}' 설정: {meal_context['meal_type']}, {meal_start_time} ~ {meal_end_time}")
     
     logger.info(f"기본 시간 키워드 설정: {list(time_keywords.keys())}")
     
@@ -178,7 +296,7 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
     # 마지막 할당 시간 추적 (순차적 할당용)
     last_assigned_time = reference_time
     
-    # 시간 할당 로직 강화
+    # 🔥 시간 할당 로직 강화 - 이름 업데이트 포함
     for idx, schedule in enumerate(flexible_schedules):
         logger.info(f"유연 일정 {idx+1} 처리: {schedule.get('name', '이름 없음')}")
         schedule_text = voice_input.lower() + " " + schedule.get("name", "").lower()
@@ -216,6 +334,21 @@ def apply_time_inference(time_chain, voice_input: str, extracted_schedules: Dict
                     
                     schedule["startTime"] = start_str
                     schedule["endTime"] = end_str
+                    
+                    # 🔥 일정 이름 업데이트 (맥락에 맞게)
+                    if "meal_type" in time_data:
+                        old_name = schedule.get("name", "")
+                        new_name = time_data["meal_type"]
+                        
+                        # 기존 이름이 구체적이면 결합
+                        if old_name and old_name != "저녁 식사" and old_name != "식사":
+                            if any(food_word in old_name.lower() for food_word in ["식당", "맛집", "카페", "restaurant"]):
+                                new_name = f"{new_name} ({old_name})"
+                            else:
+                                new_name = f"{new_name}"
+                        
+                        schedule["name"] = new_name
+                        logger.info(f"일정 이름 업데이트: '{old_name}' -> '{new_name}'")
                     
                     # 할당 시간 업데이트
                     if isinstance(end_time, datetime.datetime):
