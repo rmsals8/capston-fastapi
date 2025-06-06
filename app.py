@@ -218,14 +218,13 @@ class DynamicRouteOptimizer:
         self.kakao_api_key = kakao_api_key
     
     async def create_multiple_options(self, enhanced_data: Dict, voice_input: str) -> Dict:
-        """완전 동적 다중 옵션 생성 - 하드코딩 없음 (로깅 강화)"""
-        print("🔥🔥🔥 DynamicRouteOptimizer.create_multiple_options 호출됨!")
-        logger.info("🔥🔥🔥 DynamicRouteOptimizer.create_multiple_options 호출됨!")        
+        """완전 동적 다중 옵션 생성 - used_locations 스코프 문제 수정"""
+        
         def force_log(msg):
             print(f"🎯 {msg}")
             logger.info(msg)
         
-        force_log("🆕 동적 다중 옵션 생성 시작 (디버그 모드)")
+        force_log("🆕 동적 다중 옵션 생성 시작 (used_locations 스코프 수정)")
         force_log(f"입력 데이터: voice_input='{voice_input}'")
         
         # 입력 데이터 상세 로깅
@@ -249,7 +248,7 @@ class DynamicRouteOptimizer:
         force_log(f"  시작: {start_schedule.get('name')} ({start_coord})")
         force_log(f"  종료: {end_schedule.get('name')} ({end_coord})")
         
-        # 2. 변경 가능한 일정 자동 식별 (로깅 강화)
+        # 2. 변경 가능한 일정 자동 식별
         variable_schedules = self.identify_variable_schedules(fixed_schedules, voice_input)
         
         force_log(f"🔍 변경 가능한 일정 식별 결과: {len(variable_schedules)}개")
@@ -260,13 +259,22 @@ class DynamicRouteOptimizer:
             force_log("⚠️ 변경 가능한 일정이 없음 → 단일 옵션 반환")
             return {"options": [enhanced_data]}
         
+        # 🔥 전역 위치 추적 - 클래스 레벨로 이동하여 확실한 공유 보장
+        global_used_locations = set()
+        
+        force_log(f"🔄 전역 used_locations 초기화: {len(global_used_locations)}개")
+        
         # 3. 각 변경 가능한 일정에 대해 동적 옵션 생성
         options = []
+        successful_options = 0  # 성공한 옵션 수 추적
+        
         for option_num in range(5):
             force_log(f"🔄 옵션 {option_num + 1} 동적 생성 시작")
+            force_log(f"  현재 전역 used_locations: {len(global_used_locations)}개 - {list(global_used_locations)}")
             
             option_data = copy.deepcopy(enhanced_data)
             option_modified = False
+            current_option_locations = set()  # 현재 옵션에서 사용할 위치들
             
             for var_info in variable_schedules:
                 schedule_idx = var_info["index"]
@@ -277,6 +285,13 @@ class DynamicRouteOptimizer:
                 force_log(f"    현재 이름: '{schedule.get('name')}'")
                 force_log(f"    현재 위치: '{schedule.get('location')}'")
                 
+                # 🔥 현재 위치를 첫 번째 옵션에서는 사용된 위치에 추가
+                current_location = schedule.get("location", "")
+                if option_num == 0 and current_location and current_location.strip():
+                    global_used_locations.add(current_location)
+                    force_log(f"    📝 원본 위치를 전역에 추가: {current_location}")
+                    force_log(f"    📊 전역 used_locations 업데이트: {len(global_used_locations)}개")
+                
                 # 4. 동적 중간 지역 계산
                 force_log(f"  🗺️ 중간 지역 계산 (옵션 {option_num + 1})")
                 intermediate_areas = await self.calculate_intermediate_areas(
@@ -284,39 +299,67 @@ class DynamicRouteOptimizer:
                 )
                 force_log(f"    계산된 중간 지역: {intermediate_areas}")
                 
-                # 5. 해당 지역에서 브랜드 검색
-                force_log(f"  🔍 브랜드 검색: '{brand_name}' in {len(intermediate_areas)}개 지역")
+                # 5. 해당 지역에서 브랜드 검색 (🔥 전역 used_locations 사본 전달)
+                force_log(f"  🔍 브랜드 검색: '{brand_name}' (전역 제외: {len(global_used_locations)}개)")
+                force_log(f"    제외할 위치 목록: {list(global_used_locations)}")
+                
+                # 🔥 used_locations 사본을 전달하여 find_optimal_branch에서 실제로 수정되지 않도록 함
+                used_locations_copy = global_used_locations.copy()
+                
                 best_location = await self.find_optimal_branch(
-                    brand_name, intermediate_areas, start_coord, end_coord
+                    brand_name, intermediate_areas, start_coord, end_coord, used_locations_copy
                 )
                 
                 if best_location:
+                    new_location = best_location.get("address", "")
                     force_log(f"    ✅ 검색 성공: {best_location.get('name')}")
-                    force_log(f"      주소: {best_location.get('address')}")
+                    force_log(f"      주소: {new_location}")
                     
-                    if best_location.get("address") != schedule.get("location"):
+                    # 🔥 중복 체크 (find_optimal_branch가 사본을 수정했으므로 원본은 그대로)
+                    if new_location in global_used_locations:
+                        force_log(f"    ⚠️ 이미 전역에서 사용된 위치: {new_location}")
+                        continue  # 이 일정은 수정하지 않고 넘어감
+                    elif new_location != current_location:
                         # 위치 업데이트
                         old_location = schedule.get("location")
-                        schedule["location"] = best_location["address"]
+                        schedule["location"] = new_location
                         schedule["latitude"] = best_location["latitude"]
                         schedule["longitude"] = best_location["longitude"]
                         schedule["name"] = best_location["name"]
                         
+                        # 🔥 현재 옵션에서 사용할 위치로 임시 저장
+                        current_option_locations.add(new_location)
+                        
                         option_modified = True
                         force_log(f"    🔄 위치 변경:")
                         force_log(f"      이전: {old_location}")
-                        force_log(f"      이후: {best_location['address']}")
+                        force_log(f"      이후: {new_location}")
+                        force_log(f"    📝 현재 옵션 위치 목록에 추가: {new_location}")
                     else:
-                        force_log(f"    ⚠️ 동일한 위치라서 변경 없음")
+                        force_log(f"    ⚠️ 동일한 위치라서 변경 없음: {new_location}")
                 else:
-                    force_log(f"    ❌ 검색 실패: 대안 위치 없음")
+                    force_log(f"    ❌ 검색 실패: 새로운 위치 없음 (모든 후보가 이미 사용됨)")
+                    
+                    # 🔥 더 이상 새로운 위치가 없으면 옵션 생성 중단
+                    if option_num > 0:  # 첫 번째 옵션이 아닌 경우에만
+                        force_log(f"    ⏭️ 새로운 위치가 없어서 옵션 생성 중단")
+                        break
             
             # 6. 수정된 옵션만 추가 (중복 방지)
             if option_modified or option_num == 0:  # 첫 번째는 원본 유지
+                # 🔥 현재 옵션의 위치들을 전역에 추가 (성공적으로 옵션이 생성된 경우에만)
+                for location in current_option_locations:
+                    global_used_locations.add(location)
+                    force_log(f"    ✅ 전역 used_locations에 추가: {location}")
+                
+                force_log(f"    📊 전역 used_locations 최종 상태: {len(global_used_locations)}개")
+                force_log(f"      목록: {list(global_used_locations)}")
+                
                 # 고유 ID 부여
+                current_time = int(time.time() * 1000)
                 for j, schedule in enumerate(option_data["fixedSchedules"]):
                     old_id = schedule.get("id")
-                    new_id = f"{int(time.time() * 1000)}_{option_num + 1}_{j + 1}"
+                    new_id = f"{current_time}_{option_num + 1}_{j + 1}"
                     schedule["id"] = new_id
                     force_log(f"    🆔 ID 업데이트: {old_id} → {new_id}")
                 
@@ -326,16 +369,27 @@ class DynamicRouteOptimizer:
                     "flexibleSchedules": option_data.get("flexibleSchedules", [])
                 })
                 
+                successful_options += 1
                 force_log(f"  ✅ 옵션 {option_num + 1} 생성 완료 (수정됨: {option_modified})")
+                force_log(f"    성공한 옵션 수: {successful_options}")
+                
             else:
-                force_log(f"  ❌ 옵션 {option_num + 1} 변경 없어서 제외")
+                force_log(f"  ❌ 옵션 {option_num + 1} 건너뛰기 (변경사항 없음)")
+            
+            # 🔥 조기 종료 조건: 더 이상 새로운 위치를 찾을 수 없는 경우
+            if not option_modified and option_num > 0:
+                force_log(f"⏹️ 더 이상 새로운 위치를 찾을 수 없어서 조기 종료 (옵션 {option_num + 1})")
+                break
         
-        # 7. 중복 제거
+        # 7. 중복 제거 (추가 안전장치)
         unique_options = self.remove_duplicate_options(options)
         force_log(f"🔄 중복 제거 결과: {len(options)}개 → {len(unique_options)}개")
         
         # 8. 최종 결과
         force_log(f"🎉 동적 옵션 생성 완료: {len(unique_options)}개")
+        force_log(f"📊 최종 전역 used_locations: {len(global_used_locations)}개")
+        for i, location in enumerate(global_used_locations):
+            force_log(f"  위치 {i+1}: {location}")
         
         # 생성된 옵션들 상세 로깅
         for i, option in enumerate(unique_options):
