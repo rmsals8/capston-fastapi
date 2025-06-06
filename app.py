@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 import os
 import json
 import re
@@ -211,6 +211,402 @@ async def new_extract_schedule(request: ScheduleRequest):
         
         print("🔥 오류 응답 반환")
         return UnicodeJSONResponse(content=error_result, status_code=200)
+class DynamicRouteOptimizer:
+    """동적 경로 최적화 및 다중 옵션 생성기"""
+    
+    def __init__(self, kakao_api_key: str):
+        self.kakao_api_key = kakao_api_key
+    
+    async def create_multiple_options(self, enhanced_data: Dict, voice_input: str) -> Dict:
+        """완전 동적 다중 옵션 생성 - 하드코딩 없음 (함수명 기존과 동일하게 유지)"""
+        
+        def force_log(msg):
+            print(f"🎯 {msg}")
+            logger.info(msg)
+        
+        force_log("🆕 동적 다중 옵션 생성 시작 (하드코딩 제거)")
+        
+        fixed_schedules = enhanced_data.get("fixedSchedules", [])
+        if len(fixed_schedules) < 2:
+            force_log("⚠️ 경로 분석에 필요한 최소 일정 부족")
+            return {"options": [enhanced_data]}  # 단일 옵션 반환
+        
+        # 1. 경로 정보 자동 추출
+        start_schedule = fixed_schedules[0]
+        end_schedule = fixed_schedules[-1]
+        
+        start_coord = (start_schedule.get("latitude"), start_schedule.get("longitude"))
+        end_coord = (end_schedule.get("latitude"), end_schedule.get("longitude"))
+        
+        force_log(f"경로 분석: {start_schedule.get('name')} → {end_schedule.get('name')}")
+        
+        # 2. 변경 가능한 일정 자동 식별
+        variable_schedules = self.identify_variable_schedules(fixed_schedules, voice_input)
+        
+        if not variable_schedules:
+            force_log("⚠️ 변경 가능한 일정이 없음")
+            return {"options": [enhanced_data]}
+        
+        # 3. 각 변경 가능한 일정에 대해 동적 옵션 생성
+        options = []
+        for option_num in range(5):
+            force_log(f"옵션 {option_num + 1} 동적 생성")
+            
+            option_data = copy.deepcopy(enhanced_data)
+            option_modified = False
+            
+            for var_info in variable_schedules:
+                schedule_idx = var_info["index"]
+                schedule = option_data["fixedSchedules"][schedule_idx]
+                brand_name = var_info["brand"]
+                
+                # 4. 동적 중간 지역 계산
+                intermediate_areas = await self.calculate_intermediate_areas(
+                    start_coord, end_coord, option_num, total_options=5
+                )
+                
+                # 5. 해당 지역에서 브랜드 검색
+                best_location = await self.find_optimal_branch(
+                    brand_name, intermediate_areas, start_coord, end_coord
+                )
+                
+                if best_location and best_location.get("address") != schedule.get("location"):
+                    # 위치 업데이트
+                    schedule["location"] = best_location["address"]
+                    schedule["latitude"] = best_location["latitude"]
+                    schedule["longitude"] = best_location["longitude"]
+                    schedule["name"] = best_location["name"]
+                    
+                    option_modified = True
+                    force_log(f"   ✅ {brand_name} 위치 변경: {best_location['name']}")
+                else:
+                    force_log(f"   ⚠️ {brand_name} 대안 위치 없음")
+            
+            # 6. 수정된 옵션만 추가 (중복 방지)
+            if option_modified or option_num == 0:  # 첫 번째는 원본 유지
+                # 고유 ID 부여
+                for j, schedule in enumerate(option_data["fixedSchedules"]):
+                    schedule["id"] = f"{int(time.time() * 1000)}_{option_num + 1}_{j + 1}"
+                
+                options.append({
+                    "optionId": option_num + 1,
+                    "fixedSchedules": option_data["fixedSchedules"],
+                    "flexibleSchedules": option_data.get("flexibleSchedules", [])
+                })
+                
+                force_log(f"   ✅ 옵션 {option_num + 1} 생성 완료")
+            else:
+                force_log(f"   ❌ 옵션 {option_num + 1} 변경 없어서 제외")
+        
+        # 7. 중복 제거
+        unique_options = self.remove_duplicate_options(options)
+        
+        # 8. 실제 다른 옵션만 반환 (fallback 제거됨)
+        force_log(f"🎉 동적 옵션 생성 완료: {len(unique_options)}개")
+        return {"options": unique_options}  # fallback 없이 실제 다른 것만
+    
+    def identify_variable_schedules(self, schedules: List[Dict], voice_input: str) -> List[Dict]:
+        """변경 가능한 일정 자동 식별"""
+        
+        variable_schedules = []
+        
+        # 브랜드 키워드 동적 감지
+        brand_keywords = {
+            # ☕ 커피 전문점 (경쟁 브랜드들)
+            "스타벅스": ["스타벅스", "starbucks"],
+            "커피빈": ["커피빈", "coffee bean", "coffeebean"],
+            "할리스": ["할리스", "hollys", "할리스커피"],
+            "투썸플레이스": ["투썸플레이스", "twosome", "투썸"],
+            "이디야": ["이디야", "ediya", "이디야커피"],
+            "폴바셋": ["폴바셋", "paul bassett"],
+            "탐앤탐스": ["탐앤탐스", "tom n toms"],
+            "엔젤리너스": ["엔젤리너스", "angelinus"],
+            "메가커피": ["메가커피", "mega coffee", "메가mgc커피"],
+            "컴포즈커피": ["컴포즈", "compose coffee"],
+            "식사": ["식사", "저녁", "점심", "아침", "밥", "맛집", "식당"],          
+            # 🍰 카페 & 디저트
+            "카페": ["카페", "cafe", "커피", "coffee"],
+            "베이커리": ["베이커리", "bakery", "빵집", "파리바게뜨", "뚜레쥬르"],
+            "디저트": ["디저트", "dessert", "케이크", "마카롱", "아이스크림"],
+            
+            # 🍔 패스트푸드
+            "맥도날드": ["맥도날드", "mcdonald", "맥딜"],
+            "버거킹": ["버거킹", "burger king"],
+            "롯데리아": ["롯데리아", "lotteria"],
+            "kfc": ["kfc", "치킨"],
+            "서브웨이": ["서브웨이", "subway"],
+            
+            # 🍕 피자
+            "도미노피자": ["도미노", "domino", "도미노피자"],
+            "피자헛": ["피자헛", "pizza hut"],
+            "미스터피자": ["미스터피자", "mr pizza"],
+            "파파존스": ["파파존스", "papa johns"],
+            
+            # 🍗 치킨
+            "bbq": ["bbq", "비비큐"],
+            "굽네치킨": ["굽네", "굽네치킨"],
+            "네네치킨": ["네네", "네네치킨"],
+            "교촌치킨": ["교촌", "교촌치킨"],
+            "bhc": ["bhc", "비에이치씨"],
+            "처갓집": ["처갓집", "처갓집양념치킨"],
+            
+            # 🏪 편의점
+            "편의점": ["편의점", "세븐일레븐", "cu", "gs25", "이마트24", "미니스톱"],
+            "세븐일레븐": ["세븐일레븐", "7eleven", "711"],
+            "cu": ["cu", "씨유"],
+            "gs25": ["gs25", "지에스25"],
+            "이마트24": ["이마트24", "emart24"],
+            
+            # 🍜 한식
+            "한식": ["한식", "한정식", "백반", "찌개", "국밥", "korean food"],
+            "김밥": ["김밥천국", "김밥", "분식"],
+            "곱창": ["곱창", "막창", "대창", "양"],
+            "삼겹살": ["삼겹살", "고기집", "구이"],
+            "치킨갈비": ["닭갈비", "치킨갈비", "춘천닭갈비"],
+            
+            # 🍝 양식
+            "파스타": ["파스타", "이탈리안", "스파게티"],
+            "스테이크": ["스테이크", "아웃백", "outback"],
+            "양식": ["양식", "이탈리안", "western food"],
+            
+            # 🍜 일식
+            "초밥": ["초밥", "스시", "sushi"],
+            "라멘": ["라멘", "ramen", "돈코츠"],
+            "돈카츠": ["돈카츠", "카츠", "tonkatsu"],
+            "일식": ["일식", "japanese food"],
+            
+            # 🥟 중식
+            "중식": ["중식", "중국집", "짜장면", "짬뽕", "탕수육"],
+            "딤섬": ["딤섬", "만두"],
+            
+            # 🌮 기타 세계음식
+            "멕시칸": ["멕시칸", "타코", "부리또"],
+            "태국음식": ["태국", "쌀국수", "팟타이"],
+            "인도음식": ["인도", "커리", "난"],
+            
+            # 🥘 분식/간식
+            "분식": ["분식", "떡볶이", "순대", "튀김", "어묵"],
+            "아이스크림": ["배스킨라빈스", "브라운", "하겐다즈"],
+            
+            # 🏨 숙박
+            "호텔": ["호텔", "hotel", "리조트", "펜션"],
+            "모텔": ["모텔", "motel"],
+            
+            # 🏥 생활시설
+            "병원": ["병원", "의원", "clinic", "hospital"],
+            "약국": ["약국", "pharmacy"],
+            "은행": ["은행", "bank", "atm"],
+            "마트": ["마트", "이마트", "홈플러스", "롯데마트"],
+            
+            # 🎮 오락시설
+            "노래방": ["노래방", "karaoke", "코인노래방"],
+            "pc방": ["pc방", "피씨방", "게임방"],
+            "찜질방": ["찜질방", "사우나", "목욕탕"],
+            "볼링장": ["볼링", "볼링장"],
+            "당구장": ["당구", "당구장", "포켓볼"],
+            
+            # 🚗 교통/서비스
+            "주유소": ["주유소", "gas station", "sk", "gs칼텍스", "현대오일뱅크"],
+            "세차장": ["세차", "세차장"],
+            "미용실": ["미용실", "헤어샵", "미용원"],
+            "네일샵": ["네일", "네일샵", "nail"],
+            
+            # 🏃 운동/건강
+            "헬스장": ["헬스", "헬스장", "피트니스", "gym"],
+            "요가": ["요가", "필라테스", "yoga"],
+            "골프": ["골프", "골프장", "골프연습장"],
+            
+            # 🎯 대형 브랜드 (구체적으로)
+            "이마트": ["이마트", "emart"],
+            "홈플러스": ["홈플러스", "homeplus"],
+            "코스트코": ["코스트코", "costco"],
+            "현대백화점": ["현대백화점", "현대"],
+            "롯데백화점": ["롯데백화점", "롯데"],
+            "신세계": ["신세계백화점", "신세계"],
+        }
+        
+        for idx, schedule in enumerate(schedules):
+            schedule_name = schedule.get("name", "").lower()
+            
+            # 브랜드 매칭 확인
+            for brand, keywords in brand_keywords.items():
+                if any(keyword in schedule_name for keyword in keywords):
+                    variable_schedules.append({
+                        "index": idx,
+                        "brand": brand,
+                        "original_name": schedule.get("name"),
+                        "keywords": keywords
+                    })
+                    logger.info(f"🔍 변경 가능한 일정 발견: {schedule.get('name')} → {brand}")
+                    break
+        
+        return variable_schedules
+    
+    async def calculate_intermediate_areas(self, start_coord: Tuple, end_coord: Tuple, 
+                                         option_num: int, total_options: int = 5) -> List[Tuple]:
+        """동적 중간 지역 좌표 계산"""
+        
+        start_lat, start_lng = start_coord
+        end_lat, end_lng = end_coord
+        
+        # 옵션별로 다른 중간점들 계산
+        intermediate_coords = []
+        
+        if option_num == 0:
+            # 옵션 1: 출발지 근처 (20% 지점)
+            ratio = 0.2
+        elif option_num == 1:
+            # 옵션 2: 중간 지점 (50% 지점)
+            ratio = 0.5
+        elif option_num == 2:
+            # 옵션 3: 목적지 근처 (80% 지점)
+            ratio = 0.8
+        elif option_num == 3:
+            # 옵션 4: 약간 우회 경로 (중간점에서 수직으로 이동)
+            ratio = 0.5
+            # 수직 오프셋 추가
+            perpendicular_offset = 0.01  # 약 1km 정도
+        else:
+            # 옵션 5: 다른 우회 경로
+            ratio = 0.3
+            perpendicular_offset = -0.01
+        
+        # 기본 중간점 계산
+        mid_lat = start_lat + (end_lat - start_lat) * ratio
+        mid_lng = start_lng + (end_lng - start_lng) * ratio
+        
+        # 우회 경로 옵션인 경우 오프셋 적용
+        if option_num >= 3:
+            # 수직 방향으로 약간 이동
+            if 'perpendicular_offset' in locals():
+                mid_lat += perpendicular_offset
+        
+        intermediate_coords.append((mid_lat, mid_lng))
+        
+        logger.info(f"옵션 {option_num + 1} 중간점: ({mid_lat:.4f}, {mid_lng:.4f})")
+        return intermediate_coords
+    
+    async def find_optimal_branch(self, brand_name: str, intermediate_areas: List[Tuple], 
+                                start_coord: Tuple, end_coord: Tuple) -> Optional[Dict]:
+        """최적의 브랜드 지점 찾기"""
+        
+        best_location = None
+        best_efficiency = 0
+        
+        for coord in intermediate_areas:
+            # 해당 좌표 근처에서 브랜드 검색
+            candidates = await self.search_brand_near_coordinate(brand_name, coord)
+            
+            for candidate in candidates:
+                # 경로 효율성 계산
+                efficiency = self.calculate_route_efficiency(
+                    start_coord, 
+                    (candidate["latitude"], candidate["longitude"]), 
+                    end_coord
+                )
+                
+                if efficiency > best_efficiency:
+                    best_efficiency = efficiency
+                    best_location = candidate
+        
+        if best_location:
+            logger.info(f"✅ {brand_name} 최적 지점: {best_location['name']} (효율성: {best_efficiency:.2f})")
+        
+        return best_location
+    
+    async def search_brand_near_coordinate(self, brand_name: str, coord: Tuple, 
+                                         radius: int = 3000) -> List[Dict]:
+        """특정 좌표 근처에서 브랜드 검색"""
+        
+        lat, lng = coord
+        
+        try:
+            url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+            headers = {"Authorization": f"KakaoAK {self.kakao_api_key}"}
+            
+            params = {
+                "query": brand_name,
+                "x": lng,
+                "y": lat,
+                "radius": radius,
+                "size": 10,
+                "sort": "distance"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        candidates = []
+                        for place in data.get("documents", []):
+                            candidates.append({
+                                "name": place.get("place_name", ""),
+                                "address": place.get("road_address_name") or place.get("address_name", ""),
+                                "latitude": float(place.get("y", 0)),
+                                "longitude": float(place.get("x", 0)),
+                                "distance": place.get("distance", "")
+                            })
+                        
+                        logger.info(f"🔍 {brand_name} 검색: 좌표({lat:.4f}, {lng:.4f}) 근처 {len(candidates)}개 발견")
+                        return candidates
+                        
+        except Exception as e:
+            logger.error(f"❌ 브랜드 검색 오류: {e}")
+        
+        return []
+    
+    def calculate_route_efficiency(self, start: Tuple, middle: Tuple, end: Tuple) -> float:
+        """경로 효율성 계산 (1에 가까울수록 효율적)"""
+        
+        def distance(p1, p2):
+            lat1, lng1 = p1
+            lat2, lng2 = p2
+            return math.sqrt((lat2 - lat1)**2 + (lng2 - lng1)**2)
+        
+        # 직선 거리 vs 실제 경로 거리
+        direct_distance = distance(start, end)
+        route_distance = distance(start, middle) + distance(middle, end)
+        
+        if route_distance == 0:
+            return 0
+        
+        efficiency = direct_distance / route_distance
+        return efficiency
+    
+    def remove_duplicate_options(self, options: List[Dict]) -> List[Dict]:
+        """중복 옵션 제거"""
+        
+        unique_options = []
+        seen_signatures = set()
+        
+        for option in options:
+            # 각 옵션의 위치 시그니처 생성
+            signature = self.create_location_signature(option)
+            
+            if signature not in seen_signatures:
+                unique_options.append(option)
+                seen_signatures.add(signature)
+                logger.info(f"✅ 고유 옵션 추가: {signature}")
+            else:
+                logger.info(f"❌ 중복 옵션 제외: {signature}")
+        
+        return unique_options
+    
+    def create_location_signature(self, option: Dict) -> str:
+        """옵션의 위치 시그니처 생성"""
+        
+        locations = []
+        for schedule in option.get("fixedSchedules", []):
+            location = schedule.get("location", "")
+            # 주소의 핵심 부분만 추출 (중복 감지용)
+            if location:
+                core_location = location.split()[-2:] if len(location.split()) > 2 else [location]
+                locations.extend(core_location)
+        
+        return " | ".join(sorted(locations))
+
+
 class UnicodeJSONResponse(JSONResponse):
     def render(self, content) -> bytes:
         return json.dumps(
@@ -2155,207 +2551,18 @@ JSON 형식으로만 응답:
 
 # 3. 기존 create_simple_multiple_options 대신 GPT 기반으로 수정
 async def create_multiple_options(enhanced_data: Dict, voice_input: str) -> Dict:
-    """실제 가게명을 확실하게 추출하는 다중 옵션 생성 - 기존 메소드명 유지"""
+    """DynamicRouteOptimizer를 사용한 다중 옵션 생성"""
     
-    def force_log(msg):
-        print(f"🎯 {msg}")
-        logger.info(msg)
-    
-    force_log("실제 가게명 추출 강화된 다중 옵션 생성 시작")
+    optimizer = DynamicRouteOptimizer(KAKAO_REST_API_KEY)
     
     try:
-        # 경로 정보 추출
-        fixed_schedules = enhanced_data.get("fixedSchedules", [])
-        start_location = fixed_schedules[0].get("location") if len(fixed_schedules) > 0 else None
-        end_location = fixed_schedules[-1].get("location") if len(fixed_schedules) > 1 else None
-        
-        force_log(f"경로: {start_location} → {end_location}")
-        
-        # 식사 관련 일정 찾기
-        food_schedule_name = "식사"
-        for schedule in fixed_schedules:
-            if "식사" in schedule.get("name", "") or "저녁" in schedule.get("name", "") or "밥" in schedule.get("name", ""):
-                food_schedule_name = schedule.get("name", "식사")
-                break
-        
-        # GPT로 검색어 생성
-        search_queries = await generate_search_queries_with_gpt(start_location, end_location, food_schedule_name)
-        
-        options = []
-        used_locations = set()
-        
-        # 최대 5개 옵션 생성
-        for option_num in range(min(5, len(search_queries))):
-            force_log(f"옵션 {option_num + 1} 생성 중... (검색어: {search_queries[option_num]})")
-            
-            option_data = copy.deepcopy(enhanced_data)
-            
-            # 식사 일정만 수정
-            for schedule in option_data.get("fixedSchedules", []):
-                if "식사" in schedule.get("name", "") or "저녁" in schedule.get("name", "") or "밥" in schedule.get("name", ""):
-                    
-                    search_query = search_queries[option_num]
-                    
-                    # 🔥 직접 3중 API 호출해서 실제 가게명 획득
-                    try:
-                        force_log(f"   직접 3중 API 호출: '{search_query}'")
-                        
-                        # GPT 분석
-                        analysis = await TripleLocationSearchService.analyze_location_with_gpt(
-                            search_query,
-                            reference_location=start_location
-                        )
-                        
-                        # 참조 일정
-                        reference_schedules = [{"location": start_location}] if start_location else []
-                        
-                        real_place_name = None
-                        new_location = None
-                        new_latitude = None
-                        new_longitude = None
-                        
-                        # Kakao 검색 (가장 정확함)
-                        try:
-                            kakao_result = await TripleLocationSearchService.search_kakao(analysis, reference_schedules)
-                            
-                            if kakao_result and kakao_result.address:
-                                real_place_name = kakao_result.name if hasattr(kakao_result, 'name') and kakao_result.name else search_query
-                                new_location = clean_address(kakao_result.address)
-                                new_latitude = kakao_result.latitude
-                                new_longitude = kakao_result.longitude
-                                
-                                force_log(f"   ✅ Kakao 성공: '{real_place_name}' - {new_location}")
-                        except Exception as e:
-                            force_log(f"   ❌ Kakao 실패: {e}")
-                        
-                        # Google 검색 시도 (Kakao 실패시)
-                        if not real_place_name:
-                            try:
-                                google_result = await TripleLocationSearchService.search_google(analysis)
-                                
-                                if google_result and google_result.address:
-                                    real_place_name = google_result.name if hasattr(google_result, 'name') and google_result.name else search_query
-                                    new_location = clean_address(google_result.address)
-                                    new_latitude = google_result.latitude
-                                    new_longitude = google_result.longitude
-                                    
-                                    force_log(f"   ✅ Google 성공: '{real_place_name}' - {new_location}")
-                            except Exception as e:
-                                force_log(f"   ❌ Google 실패: {e}")
-                        
-                        # Foursquare 검색 시도 (Kakao, Google 모두 실패시)
-                        if not real_place_name:
-                            try:
-                                foursquare_result = await TripleLocationSearchService.search_foursquare(analysis)
-                                
-                                if foursquare_result and foursquare_result.address:
-                                    real_place_name = foursquare_result.name if hasattr(foursquare_result, 'name') and foursquare_result.name else search_query
-                                    new_location = clean_address(foursquare_result.address)
-                                    new_latitude = foursquare_result.latitude
-                                    new_longitude = foursquare_result.longitude
-                                    
-                                    force_log(f"   ✅ Foursquare 성공: '{real_place_name}' - {new_location}")
-                            except Exception as e:
-                                force_log(f"   ❌ Foursquare 실패: {e}")
-                        
-                        # 결과 적용
-                        if real_place_name and new_location:
-                            # 중복 체크
-                            if new_location not in used_locations:
-                                schedule["name"] = real_place_name
-                                schedule["location"] = new_location
-                                schedule["latitude"] = new_latitude if new_latitude else schedule.get("latitude")
-                                schedule["longitude"] = new_longitude if new_longitude else schedule.get("longitude")
-                                
-                                used_locations.add(new_location)
-                                force_log(f"✅ 옵션 {option_num + 1} 성공: '{real_place_name}' - {new_location}")
-                            else:
-                                force_log(f"⚠️ 옵션 {option_num + 1}: 중복 위치 - {new_location}")
-                                # 중복이면 검색어를 그대로 이름으로 사용
-                                schedule["name"] = search_query
-                        else:
-                            force_log(f"⚠️ 옵션 {option_num + 1}: 검색 실패, 검색어 사용")
-                            # 검색 실패시 검색어를 그대로 이름으로 사용
-                            schedule["name"] = search_query
-                            
-                    except Exception as e:
-                        force_log(f"❌ 옵션 {option_num + 1} 전체 검색 실패: {e}")
-                        # 최종 실패시 검색어를 그대로 사용
-                        schedule["name"] = search_query
-            
-            # 유연 일정도 동일하게 처리
-            for schedule in option_data.get("flexibleSchedules", []):
-                if "식사" in schedule.get("name", "") or "저녁" in schedule.get("name", "") or "밥" in schedule.get("name", ""):
-                    # 동일한 로직 적용 (위와 같음)
-                    search_query = search_queries[option_num] if option_num < len(search_queries) else "식사"
-                    schedule["name"] = search_query  # 간단히 검색어로 설정
-            
-            # 고유 ID 부여
-            current_time = int(time.time() * 1000)
-            for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
-                for j, schedule in enumerate(option_data.get(schedule_type, [])):
-                    schedule["id"] = f"{current_time}_{option_num + 1}_{j + 1}"
-            
-            option = {
-                "optionId": option_num + 1,
-                "fixedSchedules": option_data.get("fixedSchedules", []),
-                "flexibleSchedules": option_data.get("flexibleSchedules", [])
-            }
-            
-            options.append(option)
-            force_log(f"✅ 옵션 {option_num + 1} 완성")
-        
-        # 옵션이 부족하면 기본 옵션으로 채우기
-        while len(options) < 5:
-            option_num = len(options)
-            option_data = copy.deepcopy(enhanced_data)
-            
-            # 기본 이름 설정
-            for schedule in option_data.get("fixedSchedules", []):
-                if "식사" in schedule.get("name", ""):
-                    schedule["name"] = f"저녁 식사 옵션{option_num + 1}"
-            
-            # 고유 ID만 부여
-            current_time = int(time.time() * 1000)
-            for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
-                for j, schedule in enumerate(option_data.get(schedule_type, [])):
-                    schedule["id"] = f"{current_time}_{option_num + 1}_{j + 1}"
-            
-            option = {
-                "optionId": option_num + 1,
-                "fixedSchedules": option_data.get("fixedSchedules", []),
-                "flexibleSchedules": option_data.get("flexibleSchedules", [])
-            }
-            
-            options.append(option)
-            force_log(f"➕ 기본 옵션 {option_num + 1} 추가")
-        
-        final_result = {"options": options}
-        force_log(f"🎉 실제 가게명 추출 다중 옵션 완료: {len(options)}개")
-        
-        return final_result
-        
+        result = await optimizer.create_multiple_options(enhanced_data, voice_input)
+        return result
     except Exception as e:
-        force_log(f"❌ 실제 가게명 추출 옵션 생성 실패: {e}")
+        logger.error(f"❌ 동적 옵션 생성 실패: {e}")
         
-        # 최종 폴백: 원본 데이터로 5개 옵션 생성
-        fallback_options = []
-        for i in range(5):
-            option_data = copy.deepcopy(enhanced_data)
-            
-            current_time = int(time.time() * 1000)
-            for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
-                for j, schedule in enumerate(option_data.get(schedule_type, [])):
-                    schedule["id"] = f"{current_time}_{i + 1}_{j + 1}"
-            
-            fallback_options.append({
-                "optionId": i + 1,
-                "fixedSchedules": option_data.get("fixedSchedules", []),
-                "flexibleSchedules": option_data.get("flexibleSchedules", [])
-            })
-        
-        force_log("🔄 폴백: 원본 기반 5개 옵션 생성")
-        return {"options": fallback_options}
+        # 폴백: 단일 옵션
+        return {"options": [enhanced_data]}
 
 # 4. GPT 기반 옵션 전략 생성 (하드코딩 완전 제거)
 async def generate_option_strategies_dynamic(start_location: str, end_location: str, voice_input: str) -> List[str]:
@@ -2586,7 +2793,281 @@ async def create_smart_multiple_options(enhanced_data: Dict, voice_input: str) -
         force_log(f"❌ 지능형 옵션 생성 실패: {e}")
         return {"options": []}
 
+def should_use_dynamic_system(enhanced_data: Dict, voice_input: str) -> bool:
+    """사용할 시스템 자동 결정"""
+    
+    fixed_schedules = enhanced_data.get("fixedSchedules", [])
+    
+    # 1. 브랜드 키워드가 있으면 동적 시스템
+    brand_keywords = [
+    # ☕ 커피 전문점
+    "스타벅스", "starbucks",
+    "커피빈", "coffee bean", "coffeebean",
+    "할리스", "hollys", "할리스커피",
+    "투썸플레이스", "twosome", "투썸",
+    "이디야", "ediya", "이디야커피",
+    "폴바셋", "paul bassett",
+    "탐앤탐스", "tom n toms", "탐탐",
+    "엔젤리너스", "angelinus",
+    "메가커피", "mega coffee", "메가mgc커피",
+    "컴포즈커피", "compose coffee", "컴포즈",
+    "빽다방", "paik's coffee", "빽", "빽커피",
+    "카페베네", "cafe bene",
+    "드롭탑", "droptop",
+    "더벤티", "the venti",
+    "블루보틀", "blue bottle",
+    "스타벅스리저브", "reserve",
+    
+    # 🏪 편의점
+    "편의점",
+    "세븐일레븐", "7eleven", "711", "세븐",
+    "cu", "씨유",
+    "gs25", "지에스25", "gs",
+    "이마트24", "emart24", "이마트",
+    "미니스톱", "ministop",
+    
+    # 🍔 패스트푸드
+    "맥도날드", "mcdonald", "맥딜", "맥날",
+    "버거킹", "burger king", "버킹",
+    "롯데리아", "lotteria",
+    "kfc", "케이에프씨", "치킨",
+    "서브웨이", "subway",
+    "도미노피자", "domino", "도미노",
+    "피자헛", "pizza hut", "피헛",
+    "미스터피자", "mr pizza", "미피",
+    "파파존스", "papa johns",
+    "맘스터치", "mom's touch",
+    "크라제버거", "kraze burger",
+    "쉐이크쉑", "shake shack",
+    "파이브가이즈", "five guys",
+    
+    # 🍗 치킨
+    "bbq", "비비큐",
+    "굽네치킨", "굽네",
+    "네네치킨", "네네",
+    "교촌치킨", "교촌",
+    "bhc", "비에이치씨",
+    "처갓집", "처갓집양념치킨",
+    "쁘닭", "쁘닭치킨",
+    "호식이두마리치킨", "호식이",
+    "맥시칸치킨", "맥시칸",
+    "페리카나", "pelicana",
+    "푸라닭", "puradak",
+    "지코바", "zikoba",
+    
+    # 🍕 피자 (추가)
+    "피자스쿨", "pizza school",
+    "피자마루", "pizza maru",
+    "반올림피자", "round table pizza",
+    "청년피자", "young pizza",
+    
+    # 🍰 베이커리/디저트
+    "파리바게뜨", "paris baguette", "파바",
+    "뚜레쥬르", "tous les jours", "뚜레",
+    "던킨도넛", "dunkin donuts", "던킨",
+    "크리스피크림", "krispy kreme",
+    "베스킨라빈스", "baskin robbins", "배라",
+    "브라운", "brown",
+    "하겐다즈", "haagen dazs",
+    "나뚜루", "natuur",
+    "설빙", "sulbing",
+    "빙그레", "binggrae",
+    
+    # 🍜 패밀리 레스토랑
+    "아웃백", "outback",
+    "티지아이프라이데이", "tgi friday",
+    "베니건스", "bennigans",
+    "애슐리", "ashley",
+    "빕스", "vips",
+    "온더보더", "on the border",
+    "마르쉐", "marche",
+    "토니로마스", "tony roma",
+    
+    # 🥘 한식 프랜차이즈
+    "김밥천국",
+    "백반집",
+    "한솥도시락", "한솥",
+    "본죽", "본죽&비빔밥",
+    "놀부부대찌개", "놀부",
+    "청년다방",
+    "맘터치", "mom touch",
+    "원할머니보쌈", "원할머니",
+    "두끼떡볶이", "두끼",
+    "죠스떡볶이", "죠스",
+    "엽기떡볶이", "엽떡",
+    
+    # 🍜 일식
+    "요시노야", "yoshinoya",
+    "스키야", "sukiya",
+    "마루가메제면", "marugame",
+    "코코이찌방야", "coco",
+    "하나로초밥", "hanaro",
+    "스시로", "sushiro",
+    "온기라쿠", "ongiraku",
+    
+    # 🥟 중식
+    "홍콩반점", "홍콩반점0410",
+    "유가네닭갈비", "유가네",
+    "진주냉면", "진주함흥냉면",
+    
+    # 🛒 대형마트/마트
+    "이마트", "emart",
+    "홈플러스", "homeplus",
+    "롯데마트", "lotte mart",
+    "코스트코", "costco",
+    "하나로마트", "hanaro mart",
+    "농협", "nh마트",
+    "메가마트", "mega mart",
+    
+    # 🏬 백화점
+    "현대백화점", "현대",
+    "롯데백화점", "롯데",
+    "신세계백화점", "신세계",
+    "갤러리아", "galleria",
+    "동화면세점", "동화",
+    "아웃렛", "outlet",
+    "프리미엄아웃렛",
+    
+    # 🏥 생활시설
+    "약국", "pharmacy",
+    "온누리약국", "온누리",
+    "삼성약국", "삼성",
+    "24시간약국",
+    "병원", "의원", "clinic", "hospital",
+    "은행", "bank",
+    "우리은행", "우리",
+    "국민은행", "kb",
+    "신한은행", "신한",
+    "하나은행", "하나",
+    "기업은행", "ibk",
+    "농협은행", "nh",
+    "카카오뱅크", "kakao bank",
+    "토스뱅크", "toss bank",
+    
+    # ⛽ 주유소
+    "주유소", "gas station",
+    "sk에너지", "sk", "sk주유소",
+    "gs칼텍스", "gs", "gs주유소",
+    "현대오일뱅크", "현대", "oilbank",
+    "s-oil", "에쓰오일",
+    "알뜰주유소",
+    
+    # 🎮 오락시설
+    "노래방", "karaoke", "코인노래방",
+    "pc방", "피씨방", "게임방",
+    "찜질방", "사우나", "목욕탕",
+    "볼링장", "볼링",
+    "당구장", "당구", "포켓볼",
+    "스크린골프", "골프연습장",
+    "vr", "vr체험관",
+    "방탈출", "방탈출카페",
+    
+    # 🏋️ 운동/헬스
+    "헬스장", "헬스", "피트니스", "gym",
+    "요가", "필라테스", "yoga",
+    "골프", "골프장", "골프연습장",
+    "수영장", "swimming pool",
+    "태권도", "유도", "복싱",
+    "클라이밍", "암벽등반",
+    "스쿼시", "배드민턴", "테니스",
+    
+    # 💄 뷰티/미용
+    "미용실", "헤어샵", "미용원", "salon",
+    "네일샵", "네일", "nail",
+    "마사지", "massage", "스파", "spa",
+    "피부과", "성형외과", "피부관리",
+    "아이브로우", "눈썹",
+    "왁싱", "waxing",
+    
+    # 🚗 자동차
+    "세차장", "세차", "car wash",
+    "정비소", "자동차정비",
+    "타이어", "tire",
+    "카센터", "car center",
+    "주차장", "parking",
+    
+    # 🏨 숙박
+    "호텔", "hotel",
+    "모텔", "motel",
+    "리조트", "resort",
+    "펜션", "pension",
+    "게스트하우스", "guesthouse",
+    "에어비앤비", "airbnb",
+    "찜질방", "찜방",
+    
+    # 🎪 기타 서비스
+    "세탁소", "laundry",
+    "택배", "delivery",
+    "포토샵", "사진관",
+    "문구점", "stationery",
+    "꽃집", "flower shop",
+    "반려동물", "펫샵", "pet shop",
+    "동물병원", "vet",
+    "학원", "academy", "교육",
+    "도서관", "library",
+    "영화관", "cgv", "롯데시네마", "메가박스",
+]
+    voice_lower = voice_input.lower()
+    
+    for keyword in brand_keywords:
+        if keyword in voice_lower:
+            logger.info(f"🤖 브랜드 '{keyword}' 감지 → 동적 시스템 사용")
+            return True
+    
+    # 2. 일정에 브랜드명이 있으면 동적 시스템
+    for schedule in fixed_schedules:
+        schedule_name = schedule.get("name", "").lower()
+        for keyword in brand_keywords:
+            if keyword in schedule_name:
+                logger.info(f"🤖 일정에 브랜드 '{keyword}' 감지 → 동적 시스템 사용")
+                return True
+    
+    # 3. 식사 관련은 기존 시스템 (더 안정적)
+    meal_keywords = ["식사", "저녁", "점심", "아침", "밥", "맛집"]
+    for keyword in meal_keywords:
+        if keyword in voice_lower:
+            logger.info(f"📋 식사 키워드 '{keyword}' 감지 → 기존 시스템 사용")
+            return False
+            
+    for schedule in fixed_schedules:
+        schedule_name = schedule.get("name", "").lower()
+        for keyword in meal_keywords:
+            if keyword in schedule_name:
+                logger.info(f"📋 일정에 식사 키워드 '{keyword}' 감지 → 기존 시스템 사용")
+                return False
+    
+    # 4. 기본값: 기존 시스템 (안전)
+    logger.info("📋 기본 설정 → 기존 시스템 사용")
+    return False
 
+def create_traditional_options(enhanced_data: Dict, existing_options: List[Dict]) -> Dict:
+    """기존 시스템으로 옵션 생성"""
+    
+    if existing_options and len(existing_options) >= 5:
+        # 이미 5개 옵션이 있으면 그대로 사용
+        logger.info(f"✅ 기존 {len(existing_options)}개 옵션 사용")
+        return {"options": existing_options}
+    
+    # 5개 미만이면 추가 생성
+    logger.info("🔄 기존 옵션 부족, 추가 생성")
+    
+    fallback_options = []
+    for i in range(5):
+        option_data = copy.deepcopy(enhanced_data)
+        
+        # ID만 변경
+        current_time = int(time.time() * 1000)
+        for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
+            for j, schedule in enumerate(option_data.get(schedule_type, [])):
+                schedule["id"] = f"{current_time}_{i + 1}_{j + 1}"
+        
+        fallback_options.append({
+            "optionId": i + 1,
+            "fixedSchedules": option_data.get("fixedSchedules", []),
+            "flexibleSchedules": option_data.get("flexibleSchedules", [])
+        })
+    
+    return {"options": fallback_options}
 
 @app.post("/extract-schedule")
 async def extract_schedule(request: ScheduleRequest):
@@ -2890,111 +3371,25 @@ JSON 형식으로 반환:
         
         try:
             options = []
+        # 🔥 사용할 시스템 자동 결정
+            use_dynamic_system = should_use_dynamic_system(enhanced_data, request.voice_input)
             
-            for option_num in range(5):  # 5개 옵션 생성
-                force_log(f"옵션 {option_num + 1} 생성 중...")
+            if use_dynamic_system:
+                force_log("🤖 DynamicRouteOptimizer 사용 (브랜드 기반)")
+                final_result = await create_multiple_options(enhanced_data, request.voice_input)
                 
-                # 원본 일정 복사
-                option_schedule_data = copy.deepcopy(enhanced_data)
-                
-                # 각 옵션별로 다른 검색 전략 적용
-                search_strategies = [
-                    "맛집",      # 옵션 1: 일반 맛집
-                    "고급",      # 옵션 2: 고급 레스토랑  
-                    "가성비",    # 옵션 3: 가성비 맛집
-                    "카페",      # 옵션 4: 카페/디저트
-                    "술집"       # 옵션 5: 술집/회식
-                ]
-                
-                strategy = search_strategies[option_num]
-                force_log(f"옵션 {option_num + 1} 전략: {strategy}")
-                
-                # "저녁 식사" 일정만 다시 검색 (다른 전략으로)
-                for i, schedule in enumerate(option_schedule_data.get("fixedSchedules", [])):
-                    if "저녁" in schedule.get("name", "") or "식사" in schedule.get("name", ""):
-                        force_log(f"저녁 식사 일정 재검색: {strategy} 전략")
-                        
-                        # 전략별 이름 변경
-                        schedule["name"] = f"{strategy} 식사"
-                        
-                        # 참조 위치 (장전역 근처)
-                        reference_location = None
-                        for ref_schedule in option_schedule_data.get("fixedSchedules", []):
-                            if ref_schedule.get("location") and "장전" in ref_schedule.get("location", ""):
-                                reference_location = ref_schedule.get("location")
-                                break
-                        
-                        # 기존 위치 검색 함수 활용 시도
-                        try:
-                            temp_schedule = copy.deepcopy(schedule)
-                            temp_schedule["location"] = ""  # 위치 초기화하여 재검색 유도
-                            
-                            enhanced_schedule = await enhance_single_schedule_triple(
-                                temp_schedule, 
-                                [{"location": reference_location}] if reference_location else []
-                            )
-                            
-                            if enhanced_schedule.get("location"):
-                                # 검색 성공시 업데이트
-                                schedule["name"] = enhanced_schedule["name"]
-                                schedule["location"] = clean_address(enhanced_schedule["location"])
-                                schedule["latitude"] = enhanced_schedule.get("latitude", 35.2311)
-                                schedule["longitude"] = enhanced_schedule.get("longitude", 129.0839)
-                                
-                                force_log(f"✅ 옵션 {option_num + 1} 저녁 식사 업데이트: {schedule['name']}")
-                                force_log(f"   📍 위치: {schedule['location']}")
-                            else:
-                                force_log(f"⚠️ 옵션 {option_num + 1} 재검색 실패, 원본 유지")
-                                
-                        except Exception as e:
-                            force_log(f"⚠️ 옵션 {option_num + 1} 검색 오류: {e}")
-                
-                # 옵션별 고유 ID 부여
-                for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
-                    schedule_list = option_schedule_data.get(schedule_type, [])
-                    for j, schedule in enumerate(schedule_list):
-                        schedule["id"] = f"{int(time.time() * 1000)}_{option_num + 1}_{j + 1}"
-                
-                # 옵션 생성
-                option = {
-                    "optionId": option_num + 1,
-                    "fixedSchedules": option_schedule_data.get("fixedSchedules", []),
-                    "flexibleSchedules": option_schedule_data.get("flexibleSchedules", [])
-                }
-                
-                options.append(option)
-                force_log(f"✅ 옵션 {option_num + 1} 생성 완료")
-            
-            final_result = await create_multiple_options(enhanced_data, request.voice_input)
-
-            option_count = len(options)
-            force_log(f"✅ 다중 옵션 생성 완료: {option_count}개 옵션")
+                # 동적 시스템 실패시 기존 시스템으로 폴백
+                if len(final_result.get("options", [])) <= 1:
+                    force_log("🔄 동적 시스템 실패, 기존 시스템으로 폴백")
+                    final_result = create_traditional_options(enhanced_data, options)
+            else:
+                force_log("📋 기존 시스템 사용 (전략 기반)")
+                final_result = create_traditional_options(enhanced_data, options)
             
         except Exception as e:
             force_log(f"❌ 다중 옵션 생성 실패: {e}")
+            final_result = create_traditional_options(enhanced_data, options)
             
-            # 폴백: 단순한 다중 옵션 (하지만 ID는 다르게)
-            options = []
-            for i in range(5):
-                option_data = copy.deepcopy(enhanced_data)
-                
-                # ID만 다르게 설정
-                for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
-                    schedule_list = option_data.get(schedule_type, [])
-                    for j, schedule in enumerate(schedule_list):
-                        schedule["id"] = f"{int(time.time() * 1000)}_{i + 1}_{j + 1}"
-                
-                option = {
-                    "optionId": i + 1,
-                    "fixedSchedules": option_data.get("fixedSchedules", []),
-                    "flexibleSchedules": option_data.get("flexibleSchedules", [])
-                }
-                options.append(option)
-            
-            final_result = await create_multiple_options(enhanced_data, request.voice_input)
-
-            force_log("폴백: 단순 다중 옵션 생성 완료")
-        
         # Step 6: 최종 응답
         total_time = time.time() - start_time
         force_log(f"Step 6: 최종 완료 - 총 {total_time:.2f}초")
