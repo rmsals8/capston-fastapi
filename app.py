@@ -3932,7 +3932,10 @@ JSON 형식으로 반환:
                 else:
                     force_log("❌ 동적 시스템 완전 실패, 기존 시스템으로 폴백")
                     final_result = await create_traditional_options(enhanced_data, request.voice_input)
-            
+            else:
+                # 🔥 기존 시스템 사용 (식사 관련)
+                force_log("📋 기존 시스템 사용 (식사 관련)")
+                final_result = await create_traditional_options(enhanced_data, request.voice_input)            
         except Exception as e:
             force_log(f"❌ 다중 옵션 생성 실패: {e}")
             final_result = await create_traditional_options(enhanced_data, request.voice_input)
