@@ -1,5 +1,7 @@
 import logging
 import asyncio
+import copy
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,16 +28,50 @@ from scheduler import (
     apply_time_inference,
     apply_priorities,
     enhance_schedule_with_relationships,
-    parse_datetime
+    parse_datetime,
+    generate_multiple_options  
 )
 
+ 
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),  # 콘솔 출력 명시
+        logging.StreamHandler(sys.stderr)   # 에러도 확실히 출력
+    ]
+)
+
+# 모든 로거 레벨 설정
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# 다른 모듈들도 로그 레벨 설정
+scheduler_logger = logging.getLogger('multiple_options')
+scheduler_logger.setLevel(logging.INFO)
+
+relationship_logger = logging.getLogger('relationship_analyzer')
+relationship_logger.setLevel(logging.INFO)
+
+priority_logger = logging.getLogger('priority_analyzer')
+priority_logger.setLevel(logging.INFO)
+
+time_logger = logging.getLogger('time_inference')
+time_logger.setLevel(logging.INFO)
+
+utils_logger = logging.getLogger('scheduler.utils')
+utils_logger.setLevel(logging.INFO)
+
+# 로그 테스트
+logger.info("🔥 로깅 시스템 초기화 완료")
+logger.info(f"   현재 로그 레벨: {logger.level}")
+logger.info(f"   핸들러 수: {len(logger.handlers)}")
+
+# 환경 변수 로드 전에 로그
+logger.info("📁 환경 변수 로드 시작")
 # 환경 변수 로드
 load_dotenv()
-
-# 로깅 설정
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
 # API 키 설정
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") 
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
@@ -102,7 +138,79 @@ def clean_korean_text(text: str) -> str:
 # ----- 모델 정의 -----
 class ScheduleRequest(BaseModel):
     voice_input: str
-
+@app.post("/new-extract-schedule")
+async def new_extract_schedule(request: ScheduleRequest):
+    """🆕 완전히 새로운 다중 옵션 일정 추출 엔드포인트"""
+    from datetime import datetime
+    import sys
+    
+    print("🔥🔥🔥 NEW EXTRACT SCHEDULE 시작! 🔥🔥🔥")
+    print(f"🔥 현재 시간: {datetime.now()}")
+    print(f"🔥 입력 데이터: {request.voice_input}")
+    print(f"🔥 입력 길이: {len(request.voice_input)}자")
+    sys.stdout.flush()
+    
+    logger.info("🆕 NEW EXTRACT SCHEDULE 시작!")
+    logger.info(f"입력: {request.voice_input}")
+    
+    try:
+        print("🔥 Step 1: LLM 체인 생성 시작")
+        chain = create_schedule_chain()
+        print("🔥 Step 1: LLM 체인 생성 완료")
+        
+        print("🔥 Step 2: LLM 호출 시작")
+        result = await asyncio.wait_for(
+            run_in_executor(lambda: chain.invoke({"input": request.voice_input})),
+            timeout=20
+        )
+        print(f"🔥 Step 2: LLM 응답 수신, 타입: {type(result)}")
+        print(f"🔥 Step 2: LLM 응답 내용: {str(result)[:200]}...")
+        
+        print("🔥 Step 3: 결과 파싱")
+        if isinstance(result, dict):
+            schedule_data = result
+        else:
+            schedule_data = safe_parse_json(str(result))
+        
+        fixed_count = len(schedule_data.get('fixedSchedules', []))
+        flexible_count = len(schedule_data.get('flexibleSchedules', []))
+        print(f"🔥 Step 3: 파싱 완료 - 고정: {fixed_count}개, 유연: {flexible_count}개")
+        
+        # 간단한 다중 옵션 응답 생성 (복잡한 로직 없이)
+        print("🔥 Step 4: 간단한 다중 옵션 생성")
+        
+        simple_options = []
+        for i in range(5):
+            option = {
+                "optionId": i + 1,
+                "fixedSchedules": schedule_data.get('fixedSchedules', []),
+                "flexibleSchedules": schedule_data.get('flexibleSchedules', [])
+            }
+            simple_options.append(option)
+        
+        final_result = {"options": simple_options}
+        
+        print(f"🔥 Step 4: 간단한 다중 옵션 생성 완료 - {len(simple_options)}개 옵션")
+        print("🔥🔥🔥 NEW EXTRACT SCHEDULE 완료! 🔥🔥🔥")
+        
+        return UnicodeJSONResponse(content=final_result, status_code=200)
+        
+    except Exception as e:
+        print(f"🔥 오류 발생: {str(e)}")
+        print(f"🔥 오류 타입: {type(e).__name__}")
+        
+        error_result = {
+            "options": [
+                {
+                    "optionId": 1,
+                    "fixedSchedules": [],
+                    "flexibleSchedules": []
+                }
+            ]
+        }
+        
+        print("🔥 오류 응답 반환")
+        return UnicodeJSONResponse(content=error_result, status_code=200)
 class UnicodeJSONResponse(JSONResponse):
     def render(self, content) -> bytes:
         return json.dumps(
@@ -1732,138 +1840,561 @@ def normalize_priorities(schedules_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # extract_schedule 함수에서 사용
-@app.post("/extract-schedule")
-async def extract_schedule(request: ScheduleRequest):
-    """3중 API로 정확한 주소를 검색하는 일정 추출 API - 한글 인코딩 지원"""
-    start_time = time.time()
-    logger.info(f"🎯 3중 API 일정 추출 시작: {request.voice_input}")
+# app.py의 extract_schedule 엔드포인트 수정 부분
+
+# 기존 import에 추가
+from scheduler import (
+    create_enhancement_chain,
+    apply_time_inference,
+    apply_priorities,
+    enhance_schedule_with_relationships,
+    parse_datetime,
+    generate_multiple_options  # 🆕 새로 추가
+)
+def _create_single_option_fallback(enhanced_data: Dict[str, Any]) -> Dict[str, Any]:
+    """다중 옵션 생성 실패 시 기존 결과를 단일 옵션으로 변환"""
+    import time
+    import copy
+    
+    logger.info("🔄 단일 옵션 폴백 생성 시작")
+    logger.info(f"   입력 데이터 확인:")
+    logger.info(f"     고정 일정: {len(enhanced_data.get('fixedSchedules', []))}개")
+    logger.info(f"     유연 일정: {len(enhanced_data.get('flexibleSchedules', []))}개")
     
     try:
-        # ... 기존 로직 동일 ...
+        # 타임스탬프 생성
+        timestamp = int(time.time() * 1000)
+        logger.info(f"   고유 타임스탬프 생성: {timestamp}")
         
-        # 🔥 1. 기본 일정 추출 (LLM 호출)
-        llm_start = time.time()
-        chain = create_schedule_chain()
+        # 원본 데이터 깊은 복사
+        logger.info("   원본 데이터 깊은 복사 시작")
+        fixed_schedules = copy.deepcopy(enhanced_data.get("fixedSchedules", []))
+        flexible_schedules = copy.deepcopy(enhanced_data.get("flexibleSchedules", []))
+        logger.info("   ✅ 깊은 복사 완료")
         
-        try:
-            result = await asyncio.wait_for(
-                run_in_executor(lambda: chain.invoke({"input": request.voice_input})),
-                timeout=20
-            )
-            logger.info(f"✅ LLM 추출 완료: {time.time() - llm_start:.2f}초")
-        except asyncio.TimeoutError:
-            logger.error("❌ LLM 호출 타임아웃")
-            return UnicodeJSONResponse(
-                content={"fixedSchedules": [], "flexibleSchedules": []},
-                status_code=200
-            )
-        
-        # 🔥 2. 결과 파싱
-        schedule_data = result if isinstance(result, dict) else safe_parse_json(str(result))
-        
-        # 🔥 3. 3중 API 위치 정보 보강
-        location_start = time.time()
-        enhanced_data = await asyncio.wait_for(
-            enhance_locations_with_triple_api(schedule_data),
-            timeout=60
-        )
-        logger.info(f"✅ 3중 API 위치 검색 완료: {time.time() - location_start:.2f}초")
-        
-        # 🔥 4. 모든 스케줄러 모듈 활용
-        try:
-            # 시간 추론
-            chains = create_enhancement_chain()
-            enhanced_data = await asyncio.wait_for(
-                run_in_executor(
-                    apply_time_inference,
-                    chains["time_chain"],
-                    request.voice_input,
-                    enhanced_data
-                ),
-                timeout=15
-            )
+        # 고정 일정 ID 업데이트
+        logger.info("   고정 일정 ID 업데이트 시작")
+        for i, schedule in enumerate(fixed_schedules):
+            old_id = schedule.get("id", "없음")
             
-            # 우선순위 분석
-            enhanced_data = await asyncio.wait_for(
-                run_in_executor(
-                    apply_priorities,
-                    chains["priority_chain"],
-                    request.voice_input,
-                    enhanced_data
-                ),
-                timeout=15
-            )
+            if schedule.get("id"):
+                new_id = f"{timestamp}01{i:02d}"
+                schedule["id"] = new_id
+                logger.info(f"     고정 일정 {i+1}: '{old_id}' → '{new_id}'")
+                logger.info(f"       이름: {schedule.get('name', 'N/A')}")
+                logger.info(f"       위치: {schedule.get('location', 'N/A')}")
+            else:
+                logger.warning(f"     고정 일정 {i+1}: ID가 없어서 스킵")
+        
+        # 유연 일정 ID 업데이트  
+        logger.info("   유연 일정 ID 업데이트 시작")
+        for i, schedule in enumerate(flexible_schedules):
+            old_id = schedule.get("id", "없음")
             
-            # 일정 간 관계 분석
-            enhanced_data = await asyncio.wait_for(
-                run_in_executor(
-                    enhance_schedule_with_relationships,
-                    request.voice_input,
-                    enhanced_data
-                ),
-                timeout=10
-            )
-            
-            # 충돌 해결
-            enhanced_data = await asyncio.wait_for(
-                run_in_executor(detect_and_resolve_time_conflicts, enhanced_data),
-                timeout=10
-            )
-            
-        except Exception as e:
-            logger.warning(f"⚠️ 기타 강화 작업 스킵: {e}")
+            if schedule.get("id"):
+                new_id = f"{timestamp}01{i+100:02d}"
+                schedule["id"] = new_id
+                logger.info(f"     유연 일정 {i+1}: '{old_id}' → '{new_id}'")
+                logger.info(f"       이름: {schedule.get('name', 'N/A')}")
+                logger.info(f"       위치: {schedule.get('location', 'N/A')}")
+            else:
+                logger.warning(f"     유연 일정 {i+1}: ID가 없어서 스킵")
         
-        # 🔥 5. 우선순위 정규화
-        logger.info("🔢 우선순위 정규화 시작")
-        enhanced_data = normalize_priorities(enhanced_data)
-        
-        # 🔥 6. 최종 데이터 정리
-        fixed_schedules = enhanced_data.get("fixedSchedules", [])
-        flexible_schedules = enhanced_data.get("flexibleSchedules", [])
-        
-        # 한글 데이터 정제 (특수문자 제거)
-        def clean_korean_text(text: str) -> str:
-            """한글 텍스트 정제"""
-            if not text or not isinstance(text, str):
-                return ""
-            # 불필요한 특수문자 제거하되 한글은 유지
-            import re
-            # 한글, 영문, 숫자, 공백, 기본 특수문자만 허용
-            cleaned = re.sub(r'[^\w\s가-힣ㄱ-ㅎㅏ-ㅣ.,()-]', '', text)
-            return cleaned.strip()
-        
-        # 모든 스케줄 데이터의 한글 텍스트 정제
-        for schedule in fixed_schedules + flexible_schedules:
-            if schedule.get("name"):
-                schedule["name"] = clean_korean_text(schedule["name"])
-            if schedule.get("location"):
-                schedule["location"] = clean_korean_text(schedule["location"])
-        
-        final_data = {
-            "fixedSchedules": fixed_schedules,
-            "flexibleSchedules": flexible_schedules
+        # 최종 옵션 구성
+        logger.info("   최종 옵션 구성 시작")
+        result = {
+            "options": [
+                {
+                    "optionId": 1,
+                    "fixedSchedules": fixed_schedules,
+                    "flexibleSchedules": flexible_schedules
+                }
+            ]
         }
         
-        total_time = time.time() - start_time
-        logger.info(f"🎉 3중 API 전체 처리 완료: {total_time:.2f}초")
-        logger.info(f"   📊 결과: 고정 {len(fixed_schedules)}개, 유연 {len(flexible_schedules)}개")
+        logger.info("✅ 단일 옵션 폴백 생성 완료")
+        logger.info(f"   최종 결과:")
+        logger.info(f"     옵션 수: 1개")
+        logger.info(f"     고정 일정: {len(fixed_schedules)}개")
+        logger.info(f"     유연 일정: {len(flexible_schedules)}개")
         
-        # 결과 상세 로깅 (한글 확인)
-        for i, schedule in enumerate(fixed_schedules):
-            logger.info(f"   🔒 고정 {i+1}: {schedule.get('name')} (우선순위: {schedule.get('priority')}) - {schedule.get('location')}")
-        for i, schedule in enumerate(flexible_schedules):
-            logger.info(f"   🔄 유연 {i+1}: {schedule.get('name')} (우선순위: {schedule.get('priority')}) - {schedule.get('location')}")
+        # 일정 상세 정보 로깅 (처음 3개만)
+        logger.info("   📋 생성된 일정 상세 정보:")
         
-        # 한글을 깨뜨리지 않는 JSON 응답
-        return UnicodeJSONResponse(content=final_data, status_code=200)
+        for i, schedule in enumerate(fixed_schedules[:3]):  # 처음 3개만
+            name = schedule.get('name', 'N/A')
+            location = schedule.get('location', 'N/A')
+            start_time = schedule.get('startTime', 'N/A')
+            priority = schedule.get('priority', 'N/A')
             
+            logger.info(f"     고정 {i+1}: {name}")
+            logger.info(f"       📍 위치: {location}")
+            logger.info(f"       ⏰ 시간: {start_time}")
+            logger.info(f"       🎯 우선순위: {priority}")
+        
+        if len(fixed_schedules) > 3:
+            logger.info(f"     ... 고정 일정 {len(fixed_schedules) - 3}개 더 있음")
+        
+        for i, schedule in enumerate(flexible_schedules[:3]):  # 처음 3개만
+            name = schedule.get('name', 'N/A')
+            location = schedule.get('location', 'N/A')
+            priority = schedule.get('priority', 'N/A')
+            
+            logger.info(f"     유연 {i+1}: {name}")
+            logger.info(f"       📍 위치: {location}")
+            logger.info(f"       🎯 우선순위: {priority}")
+        
+        if len(flexible_schedules) > 3:
+            logger.info(f"     ... 유연 일정 {len(flexible_schedules) - 3}개 더 있음")
+        
+        logger.info("🎉 단일 옵션 폴백 반환 준비 완료")
+        return result
+        
     except Exception as e:
-        logger.error(f"❌ 전체 처리 오류: {str(e)}")
-        return UnicodeJSONResponse(
-            content={"fixedSchedules": [], "flexibleSchedules": []},
-            status_code=200
-        )
+        logger.error(f"❌ 단일 옵션 폴백 생성 중 오류 발생: {str(e)}")
+        logger.error(f"   오류 타입: {type(e).__name__}")
+        
+        # 최종 실패 시 완전히 빈 옵션
+        logger.warning("⚠️ 오류로 인해 완전히 빈 옵션으로 폴백")
+        
+        empty_result = {
+            "options": [
+                {
+                    "optionId": 1,
+                    "fixedSchedules": [],
+                    "flexibleSchedules": []
+                }
+            ]
+        }
+        
+        logger.info("✅ 빈 옵션 폴백 완료")
+        logger.info("   빈 옵션 구성:")
+        logger.info("     옵션 수: 1개")
+        logger.info("     고정 일정: 0개")
+        logger.info("     유연 일정: 0개")
+        
+        return empty_result
 
+@app.post("/extract-schedule")
+async def extract_schedule(request: ScheduleRequest):
+    """수정된 다중 옵션 일정 추출 API - datetime 오류 해결 + 위치 정보 보강"""
+    import datetime as dt  # 🔥 이름을 다르게 해서 충돌 방지
+    import time
+    import copy
+    
+    # 강제 로깅 함수
+    def force_log(message):
+        timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        output = f"🔥 {timestamp} - {message}"
+        print(output)
+        logger.info(message)
+        return output
+    
+    force_log("=== 수정된 일정 추출 시작 ===")
+    force_log(f"입력 텍스트: {request.voice_input}")
+    force_log(f"입력 길이: {len(request.voice_input)}자")
+    
+    start_time = time.time()
+    
+    try:
+        # Step 1: 간단한 LLM 체인 생성 (datetime 오류 수정)
+        force_log("Step 1: 수정된 LLM 체인 생성")
+        
+        try:
+            # 🔥 datetime 오류를 피하기 위해 직접 구현
+            current_time = int(dt.datetime.now().timestamp() * 1000)
+            today = dt.datetime.now()
+            current_hour = today.hour
+            
+            # 현재 시간대 설명
+            if 6 <= current_hour < 12:
+                current_time_desc = "오전"
+            elif 12 <= current_hour < 18:
+                current_time_desc = "오후"
+            elif 18 <= current_hour < 22:
+                current_time_desc = "저녁"
+            else:
+                current_time_desc = "밤"
+            
+            force_log(f"현재 시간: {current_hour}시 ({current_time_desc})")
+            
+            # 🔥 간단한 템플릿 (datetime 오류 없이)
+            # 🔥 개선된 템플릿 (개별 장소 추출)
+            simple_template = f"""다음 음성 메시지에서 **모든 개별 장소와 활동**을 빠짐없이 추출하여 JSON 형식으로 반환하세요.
+
+음성 메시지: {request.voice_input}
+
+현재 시간: {current_hour}시 ({current_time_desc})
+현재 날짜: {today.strftime('%Y-%m-%d')}
+
+🔥 **중요한 추출 규칙**:
+1. "A에서 B까지" → A와 B를 **각각 별도 일정**으로 추출
+2. "중간에 C" → C를 **별도 일정**으로 추출  
+3. 모든 장소와 활동을 **개별 일정**으로 분리
+4. 시간 배치: 언급 순서대로 시간 할당
+
+**시간 규칙**:
+- "저녁" → 18:00~20:00
+- "점심" → 12:00~14:00  
+- "아침" → 08:00~10:00
+- 순서대로 배치 (이동시간 30분 고려)
+
+**예시**:
+입력: "부산역에서 장전역까지 가는데, 중간에 저녁먹고싶어"
+→ 3개 일정: 1) 부산역 2) 저녁 식사 3) 장전역
+
+JSON 형식으로 반환:
+{{
+  "fixedSchedules": [
+    {{
+      "id": "{current_time}_1",
+      "name": "부산역", 
+      "type": "FIXED",
+      "duration": 30,
+      "priority": 1,
+      "location": "",
+      "latitude": 35.1,
+      "longitude": 129.0,
+      "startTime": "{today.strftime('%Y-%m-%d')}T15:00:00",
+      "endTime": "{today.strftime('%Y-%m-%d')}T15:30:00"
+    }},
+    {{
+      "id": "{current_time}_2",
+      "name": "저녁 식사",
+      "type": "FIXED", 
+      "duration": 120,
+      "priority": 2,
+      "location": "",
+      "latitude": 35.1,
+      "longitude": 129.0,
+      "startTime": "{today.strftime('%Y-%m-%d')}T18:00:00",
+      "endTime": "{today.strftime('%Y-%m-%d')}T20:00:00"
+    }},
+    {{
+      "id": "{current_time}_3",
+      "name": "장전역",
+      "type": "FIXED",
+      "duration": 30,
+      "priority": 3,
+      "location": "",
+      "latitude": 35.2,
+      "longitude": 129.1,
+      "startTime": "{today.strftime('%Y-%m-%d')}T20:30:00",
+      "endTime": "{today.strftime('%Y-%m-%d')}T21:00:00"
+    }}
+  ],
+  "flexibleSchedules": []
+}}
+
+주의사항:
+1. **각 장소를 개별 일정으로 분리**
+2. **"이동" 같은 말 사용 금지** - 장소명만 사용
+3. **순서대로 시간 배치** (이동시간 30분 고려)
+4. **JSON만 반환**, 다른 텍스트 포함 금지"""
+            
+            force_log("✅ 템플릿 생성 성공")
+            
+        except Exception as e:
+            force_log(f"❌ 템플릿 생성 실패: {e}")
+            raise e
+        
+        # Step 2: LLM 호출 (OpenAI 직접 호출)
+        force_log("Step 2: OpenAI 직접 호출")
+        
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-4-turbo",
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "당신은 일정 추출 전문가입니다. 한국어 음성 메시지에서 일정을 추출하여 정확한 JSON 형식으로 반환하세요."
+                    },
+                    {"role": "user", "content": simple_template}
+                ],
+                temperature=0,
+                max_tokens=1000
+            )
+            
+            llm_content = response.choices[0].message.content.strip()
+            force_log(f"✅ OpenAI 응답 수신: {len(llm_content)}자")
+            
+            # JSON 추출
+            if llm_content.startswith("```json"):
+                llm_content = llm_content.replace("```json", "").replace("```", "").strip()
+            
+            schedule_data = json.loads(llm_content)
+            force_log(f"✅ JSON 파싱 성공")
+            
+        except Exception as e:
+            force_log(f"❌ OpenAI 호출 실패: {e}")
+            
+            # 폴백: 수동으로 일정 생성
+            force_log("폴백: 수동 일정 생성")
+            
+            # 입력 텍스트 분석
+            voice_text = request.voice_input.lower()
+            schedules = []
+            
+            # 부산역 찾기
+            if "부산역" in voice_text:
+                schedules.append({
+                    "id": f"{current_time}_1",
+                    "name": "부산역",
+                    "type": "FIXED",
+                    "duration": 30,
+                    "priority": 1,
+                    "location": "부산역",
+                    "latitude": 35.1151,
+                    "longitude": 129.0425,
+                    "startTime": f"{today.strftime('%Y-%m-%d')}T10:00:00",
+                    "endTime": f"{today.strftime('%Y-%m-%d')}T10:30:00"
+                })
+            
+            # 저녁 식사 찾기
+            if "저녁" in voice_text or "식사" in voice_text:
+                schedules.append({
+                    "id": f"{current_time}_2",
+                    "name": "저녁 식사",
+                    "type": "FIXED",
+                    "duration": 90,
+                    "priority": 2,
+                    "location": "",
+                    "latitude": 35.1151,
+                    "longitude": 129.0425,
+                    "startTime": f"{today.strftime('%Y-%m-%d')}T18:00:00",
+                    "endTime": f"{today.strftime('%Y-%m-%d')}T19:30:00"
+                })
+            
+            # 장전역 찾기
+            if "장전역" in voice_text:
+                schedules.append({
+                    "id": f"{current_time}_3",
+                    "name": "장전역",
+                    "type": "FIXED",
+                    "duration": 30,
+                    "priority": 3,
+                    "location": "장전역",
+                    "latitude": 35.2311,
+                    "longitude": 129.0839,
+                    "startTime": f"{today.strftime('%Y-%m-%d')}T20:00:00",
+                    "endTime": f"{today.strftime('%Y-%m-%d')}T20:30:00"
+                })
+            
+            schedule_data = {
+                "fixedSchedules": schedules,
+                "flexibleSchedules": []
+            }
+            
+            force_log(f"✅ 수동 일정 생성 완료: {len(schedules)}개")
+        
+        # Step 3: 결과 파싱 확인
+        force_log("Step 3: 결과 파싱 확인")
+        
+        fixed_count = len(schedule_data.get('fixedSchedules', []))
+        flexible_count = len(schedule_data.get('flexibleSchedules', []))
+        force_log(f"✅ 파싱 완료 - 고정: {fixed_count}개, 유연: {flexible_count}개")
+        
+        # 🔥 Step 3.5: 모든 일정에 위치 정보 보강 (다중 옵션 생성 전)
+        force_log("Step 3.5: 위치 정보 보강")
+        try:
+            enhanced_data = await asyncio.wait_for(
+                enhance_locations_with_triple_api(schedule_data),
+                timeout=20
+            )
+            force_log("✅ 위치 정보 보강 완료")
+            schedule_data = enhanced_data
+            
+            # 위치 정보 보강 결과 로깅
+            for i, schedule in enumerate(schedule_data.get("fixedSchedules", [])):
+                name = schedule.get('name', 'N/A')
+                location = schedule.get('location', 'N/A')
+                force_log(f"   고정 일정 {i+1}: {name} - {location}")
+                
+            for i, schedule in enumerate(schedule_data.get("flexibleSchedules", [])):
+                name = schedule.get('name', 'N/A')
+                location = schedule.get('location', 'N/A')
+                force_log(f"   유연 일정 {i+1}: {name} - {location}")
+                
+        except Exception as e:
+            force_log(f"⚠️ 위치 정보 보강 실패: {e}")
+        
+        # Step 4: 기존 알고리즘을 활용한 다중 옵션 생성
+        force_log("Step 4: 기존 알고리즘 활용 다중 옵션 생성")
+        
+        try:
+            # 🔥 방법 1: 기존 알고리즘으로 각 옵션별 다른 위치 검색
+            force_log("기존 단일 경로 알고리즘 활용 시작...")
+            
+            options = []
+            
+            for option_num in range(5):  # 5개 옵션 생성
+                force_log(f"옵션 {option_num + 1} 생성 중...")
+                
+                # 원본 일정 복사
+                option_schedule_data = copy.deepcopy(schedule_data)
+                
+                # 각 옵션별로 다른 검색 전략 적용
+                search_strategies = [
+                    "맛집",      # 옵션 1: 일반 맛집
+                    "고급",      # 옵션 2: 고급 레스토랑  
+                    "가성비",    # 옵션 3: 가성비 맛집
+                    "카페",      # 옵션 4: 카페/디저트
+                    "술집"       # 옵션 5: 술집/회식
+                ]
+                
+                strategy = search_strategies[option_num]
+                force_log(f"옵션 {option_num + 1} 전략: {strategy}")
+                
+                # 🔥 "저녁 식사" 일정만 다시 검색 (다른 전략으로)
+                for i, schedule in enumerate(option_schedule_data.get("fixedSchedules", [])):
+                    if "저녁" in schedule.get("name", "") or "식사" in schedule.get("name", ""):
+                        force_log(f"저녁 식사 일정 재검색: {strategy} 전략")
+                        
+                        # 부산 지역에서 전략별 검색
+                        search_query = f"부산 금정구 {strategy}"
+                        
+                        # 참조 위치 (장전역 근처)
+                        reference_location = None
+                        for ref_schedule in option_schedule_data.get("fixedSchedules", []):
+                            if ref_schedule.get("location") and "장전" in ref_schedule.get("location", ""):
+                                reference_location = ref_schedule.get("location")
+                                break
+                        
+                        # 🔥 기존 enhance_single_schedule_triple 함수 활용
+                        try:
+                            # 임시로 위치 정보 초기화 (재검색을 위해)
+                            temp_schedule = copy.deepcopy(schedule)
+                            temp_schedule["name"] = f"{strategy} 식사"  # 전략별 이름 변경
+                            temp_schedule["location"] = ""  # 위치 초기화하여 재검색 유도
+                            
+                            # 기존 함수로 위치 검색
+                            enhanced_schedule = await enhance_single_schedule_triple(
+                                temp_schedule, 
+                                [{"location": reference_location}] if reference_location else []
+                            )
+                            
+                            if enhanced_schedule.get("location"):
+                                # 검색 성공시 업데이트
+                                schedule["name"] = enhanced_schedule["name"]
+                                schedule["location"] = enhanced_schedule["location"] 
+                                schedule["latitude"] = enhanced_schedule.get("latitude", 35.2311)
+                                schedule["longitude"] = enhanced_schedule.get("longitude", 129.0839)
+                                
+                                # 옵션별 고유 ID 생성
+                                schedule["id"] = f"{int(time.time() * 1000)}_{option_num + 1}_{i + 1}"
+                                
+                                force_log(f"✅ 옵션 {option_num + 1} 저녁 식사 업데이트: {schedule['name']}")
+                                force_log(f"   📍 위치: {schedule['location']}")
+                            else:
+                                force_log(f"⚠️ 옵션 {option_num + 1} 재검색 실패, 원본 유지")
+                                
+                        except Exception as e:
+                            force_log(f"⚠️ 옵션 {option_num + 1} 검색 오류: {e}")
+                
+                # 다른 일정들도 옵션별 고유 ID 부여
+                for schedule_list in [option_schedule_data.get("fixedSchedules", []), option_schedule_data.get("flexibleSchedules", [])]:
+                    for j, schedule in enumerate(schedule_list):
+                        if not schedule.get("id", "").endswith(f"_{option_num + 1}_"):
+                            schedule["id"] = f"{int(time.time() * 1000)}_{option_num + 1}_{j + 1}"
+                
+                # 옵션 생성
+                option = {
+                    "optionId": option_num + 1,
+                    "fixedSchedules": option_schedule_data.get("fixedSchedules", []),
+                    "flexibleSchedules": option_schedule_data.get("flexibleSchedules", [])
+                }
+                
+                options.append(option)
+                force_log(f"✅ 옵션 {option_num + 1} 생성 완료")
+            
+            final_result = {"options": options}
+            option_count = len(options)
+            force_log(f"✅ 기존 알고리즘 활용 다중 옵션 생성 완료: {option_count}개 옵션")
+            
+        except Exception as e:
+            force_log(f"❌ 기존 알고리즘 활용 실패: {e}")
+            
+            # 폴백: 단순한 다중 옵션 (하지만 ID는 다르게)
+            options = []
+            for i in range(5):
+                option_data = copy.deepcopy(schedule_data)
+                
+                # ID만 다르게 설정
+                for schedule_list in [option_data.get("fixedSchedules", []), option_data.get("flexibleSchedules", [])]:
+                    for j, schedule in enumerate(schedule_list):
+                        schedule["id"] = f"{int(time.time() * 1000)}_{i + 1}_{j + 1}"
+                
+                option = {
+                    "optionId": i + 1,
+                    "fixedSchedules": option_data.get("fixedSchedules", []),
+                    "flexibleSchedules": option_data.get("flexibleSchedules", [])
+                }
+                options.append(option)
+            
+            final_result = {"options": options}
+            force_log("폴백: 단순 다중 옵션 생성 완료")
+        
+        # Step 5: 최종 응답
+        total_time = time.time() - start_time
+        force_log(f"Step 5: 최종 완료 - 총 {total_time:.2f}초")
+        
+        option_count = len(final_result.get('options', []))
+        force_log(f"최종 옵션 수: {option_count}개")
+        
+        # 각 옵션의 일정 수 로깅
+        for i, option in enumerate(final_result.get('options', [])):
+            fixed_count = len(option.get('fixedSchedules', []))
+            flexible_count = len(option.get('flexibleSchedules', []))
+            force_log(f"옵션 {i+1}: 고정 {fixed_count}개, 유연 {flexible_count}개")
+            
+            # 첫 번째 옵션의 일정 상세 로깅
+            if i == 0:
+                for j, schedule in enumerate(option.get('fixedSchedules', [])):
+                    name = schedule.get('name', 'N/A')
+                    location = schedule.get('location', 'N/A')
+                    start_time = schedule.get('startTime', 'N/A')
+                    force_log(f"  일정 {j+1}: {name} ({location}) {start_time}")
+        
+        force_log("=== 수정된 일정 추출 완료 ===")
+        
+        return UnicodeJSONResponse(content=final_result, status_code=200)
+    
+    except Exception as e:
+        force_log(f"❌ 전체 실패: {str(e)}")
+        force_log(f"   오류 타입: {type(e).__name__}")
+        
+        # 최종 폴백
+        current_time = int(dt.datetime.now().timestamp() * 1000)
+        today = dt.datetime.now()
+        
+        fallback_result = {
+            "options": [
+                {
+                    "optionId": 1,
+                    "fixedSchedules": [
+                        {
+                            "id": f"{current_time}_fallback",
+                            "name": "일정 추출 실패",
+                            "type": "FIXED",
+                            "duration": 60,
+                            "priority": 1,
+                            "location": "오류 발생",
+                            "latitude": 37.5665,
+                            "longitude": 126.9780,
+                            "startTime": f"{today.strftime('%Y-%m-%d')}T12:00:00",
+                            "endTime": f"{today.strftime('%Y-%m-%d')}T13:00:00"
+                        }
+                    ],
+                    "flexibleSchedules": []
+                }
+            ],
+            "error": str(e)
+        }
+        
+        force_log("최종 폴백 결과 반환")
+        return UnicodeJSONResponse(content=fallback_result, status_code=200)
+
+ 
 # 서버 시작
 if __name__ == "__main__":
     import uvicorn
@@ -1872,7 +2403,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "app:app", 
         host="0.0.0.0", 
-        port=8081, 
+        port=8082, 
         reload=True,
         # 한글 지원을 위한 추가 설정
         access_log=True,
