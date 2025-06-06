@@ -3459,13 +3459,11 @@ async def create_traditional_options(enhanced_data: Dict, voice_input: str, excl
                 schedule_name = schedule.get("name", "").lower()
                 
                 # "식사" 관련 일정인지 확인
-                if any(word in schedule_name for word in ["식사", "저녁", "점심", "아침", "밥"]):
-                    force_log(f"   식사 일정 발견: {schedule.get('name')}")
+                
                     
-                    restaurant_result = None
-                    
-                    # 🔥 다양한 검색 시도 (중복 방지)
-                    for attempt in range(10):  # 최대 10번 시도
+                restaurant_result = None
+         # 🔥 다양한 검색 시도 (중복 방지)
+                for attempt in range(10):  # 최대 10번 시도
                         # 다양한 검색어 조합 생성
                         strategy_idx = (option_num + attempt) % len(base_strategies)
                         search_query = base_strategies[strategy_idx]
@@ -3565,45 +3563,46 @@ async def create_traditional_options(enhanced_data: Dict, voice_input: str, excl
                         if restaurant_result:
                             break  # 찾았으면 더 이상 시도 안 함
                     
-                    # 검색 결과 적용
-                    if restaurant_result and restaurant_result.name:
-                        # 실제 식당 정보로 업데이트
-                        schedule["name"] = restaurant_result.name  # 🔥 실제 식당명!
-                        schedule["location"] = clean_address(restaurant_result.address)
-                        schedule["latitude"] = restaurant_result.latitude
-                        schedule["longitude"] = restaurant_result.longitude
-                        
-                        force_log(f"   🎯 실제 식당 적용: {restaurant_result.name}")
-                        force_log(f"      📍 주소: {schedule['location']}")
-                    else:
-                        force_log(f"   ⚠️ 모든 검색 시도 실패, 원본 이름 유지")
+                        # 검색 결과 적용
+                        if restaurant_result and restaurant_result.name:
+                            # 실제 식당 정보로 업데이트
+                            schedule["name"] = restaurant_result.name  # 🔥 실제 식당명!
+                            schedule["location"] = clean_address(restaurant_result.address)
+                            schedule["latitude"] = restaurant_result.latitude
+                            schedule["longitude"] = restaurant_result.longitude
+                            
+                            force_log(f"   🎯 실제 식당 적용: {restaurant_result.name}")
+                            force_log(f"      📍 주소: {schedule['location']}")
+                        else:
+                            force_log(f"   ⚠️ 모든 검색 시도 실패, 원본 이름 유지")           
+                    
+                
+                # 고유 ID 부여
+                current_time = int(time.time() * 1000)
+                for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
+                    for j, schedule in enumerate(option_data.get(schedule_type, [])):
+                        schedule["id"] = f"{current_time}_{option_num + 1}_{j + 1}"
+                
+                # 옵션 추가
+                option = {
+                    "optionId": option_num + 1,
+                    "fixedSchedules": option_data.get("fixedSchedules", []),
+                    "flexibleSchedules": option_data.get("flexibleSchedules", [])
+                }
+                
+                options.append(option)
+                force_log(f"✅ 옵션 {option_num + 1} 완성")
             
-            # 고유 ID 부여
-            current_time = int(time.time() * 1000)
-            for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
-                for j, schedule in enumerate(option_data.get(schedule_type, [])):
-                    schedule["id"] = f"{current_time}_{option_num + 1}_{j + 1}"
+            final_result = {"options": options}
+            force_log(f"🎉 실제 식당명 포함 다중 옵션 생성 완료: {len(options)}개")
             
-            # 옵션 추가
-            option = {
-                "optionId": option_num + 1,
-                "fixedSchedules": option_data.get("fixedSchedules", []),
-                "flexibleSchedules": option_data.get("flexibleSchedules", [])
-            }
+            # 결과 검증 로깅
+            for i, option in enumerate(options):
+                for schedule in option.get("fixedSchedules", []):
+                    if any(word in schedule.get("name", "").lower() for word in ["식사", "식당", "맛집", "레스토랑"]):
+                        force_log(f"   옵션 {i+1} 식당: {schedule.get('name')}")
             
-            options.append(option)
-            force_log(f"✅ 옵션 {option_num + 1} 완성")
-        
-        final_result = {"options": options}
-        force_log(f"🎉 실제 식당명 포함 다중 옵션 생성 완료: {len(options)}개")
-        
-        # 결과 검증 로깅
-        for i, option in enumerate(options):
-            for schedule in option.get("fixedSchedules", []):
-                if any(word in schedule.get("name", "").lower() for word in ["식사", "식당", "맛집", "레스토랑"]):
-                    force_log(f"   옵션 {i+1} 식당: {schedule.get('name')}")
-        
-        return final_result
+            return final_result
         
     except Exception as e:
         force_log(f"❌ 실제 식당명 생성 실패: {e}")
