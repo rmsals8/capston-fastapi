@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Set, Tuple
 import os
 import json
 import re
@@ -218,17 +218,24 @@ class DynamicRouteOptimizer:
         self.kakao_api_key = kakao_api_key
     
     async def create_multiple_options(self, enhanced_data: Dict, voice_input: str) -> Dict:
-        """완전 동적 다중 옵션 생성 - 하드코딩 없음 (함수명 기존과 동일하게 유지)"""
-        
+        """완전 동적 다중 옵션 생성 - 하드코딩 없음 (로깅 강화)"""
+        print("🔥🔥🔥 DynamicRouteOptimizer.create_multiple_options 호출됨!")
+        logger.info("🔥🔥🔥 DynamicRouteOptimizer.create_multiple_options 호출됨!")        
         def force_log(msg):
             print(f"🎯 {msg}")
             logger.info(msg)
         
-        force_log("🆕 동적 다중 옵션 생성 시작 (하드코딩 제거)")
+        force_log("🆕 동적 다중 옵션 생성 시작 (디버그 모드)")
+        force_log(f"입력 데이터: voice_input='{voice_input}'")
         
+        # 입력 데이터 상세 로깅
         fixed_schedules = enhanced_data.get("fixedSchedules", [])
+        force_log(f"고정 일정 수: {len(fixed_schedules)}개")
+        for i, schedule in enumerate(fixed_schedules):
+            force_log(f"  고정 일정 {i+1}: '{schedule.get('name', 'N/A')}' (ID: {schedule.get('id', 'N/A')})")
+        
         if len(fixed_schedules) < 2:
-            force_log("⚠️ 경로 분석에 필요한 최소 일정 부족")
+            force_log("⚠️ 경로 분석에 필요한 최소 일정 부족 (2개 미만)")
             return {"options": [enhanced_data]}  # 단일 옵션 반환
         
         # 1. 경로 정보 자동 추출
@@ -238,19 +245,25 @@ class DynamicRouteOptimizer:
         start_coord = (start_schedule.get("latitude"), start_schedule.get("longitude"))
         end_coord = (end_schedule.get("latitude"), end_schedule.get("longitude"))
         
-        force_log(f"경로 분석: {start_schedule.get('name')} → {end_schedule.get('name')}")
+        force_log(f"📍 경로 분석:")
+        force_log(f"  시작: {start_schedule.get('name')} ({start_coord})")
+        force_log(f"  종료: {end_schedule.get('name')} ({end_coord})")
         
-        # 2. 변경 가능한 일정 자동 식별
+        # 2. 변경 가능한 일정 자동 식별 (로깅 강화)
         variable_schedules = self.identify_variable_schedules(fixed_schedules, voice_input)
         
+        force_log(f"🔍 변경 가능한 일정 식별 결과: {len(variable_schedules)}개")
+        for i, var_info in enumerate(variable_schedules):
+            force_log(f"  변경 가능 {i+1}: 인덱스={var_info['index']}, 브랜드='{var_info['brand']}', 원본명='{var_info['original_name']}'")
+        
         if not variable_schedules:
-            force_log("⚠️ 변경 가능한 일정이 없음")
+            force_log("⚠️ 변경 가능한 일정이 없음 → 단일 옵션 반환")
             return {"options": [enhanced_data]}
         
         # 3. 각 변경 가능한 일정에 대해 동적 옵션 생성
         options = []
         for option_num in range(5):
-            force_log(f"옵션 {option_num + 1} 동적 생성")
+            force_log(f"🔄 옵션 {option_num + 1} 동적 생성 시작")
             
             option_data = copy.deepcopy(enhanced_data)
             option_modified = False
@@ -260,33 +273,52 @@ class DynamicRouteOptimizer:
                 schedule = option_data["fixedSchedules"][schedule_idx]
                 brand_name = var_info["brand"]
                 
+                force_log(f"  📝 일정 수정: 인덱스={schedule_idx}, 브랜드='{brand_name}'")
+                force_log(f"    현재 이름: '{schedule.get('name')}'")
+                force_log(f"    현재 위치: '{schedule.get('location')}'")
+                
                 # 4. 동적 중간 지역 계산
+                force_log(f"  🗺️ 중간 지역 계산 (옵션 {option_num + 1})")
                 intermediate_areas = await self.calculate_intermediate_areas(
                     start_coord, end_coord, option_num, total_options=5
                 )
+                force_log(f"    계산된 중간 지역: {intermediate_areas}")
                 
                 # 5. 해당 지역에서 브랜드 검색
+                force_log(f"  🔍 브랜드 검색: '{brand_name}' in {len(intermediate_areas)}개 지역")
                 best_location = await self.find_optimal_branch(
                     brand_name, intermediate_areas, start_coord, end_coord
                 )
                 
-                if best_location and best_location.get("address") != schedule.get("location"):
-                    # 위치 업데이트
-                    schedule["location"] = best_location["address"]
-                    schedule["latitude"] = best_location["latitude"]
-                    schedule["longitude"] = best_location["longitude"]
-                    schedule["name"] = best_location["name"]
+                if best_location:
+                    force_log(f"    ✅ 검색 성공: {best_location.get('name')}")
+                    force_log(f"      주소: {best_location.get('address')}")
                     
-                    option_modified = True
-                    force_log(f"   ✅ {brand_name} 위치 변경: {best_location['name']}")
+                    if best_location.get("address") != schedule.get("location"):
+                        # 위치 업데이트
+                        old_location = schedule.get("location")
+                        schedule["location"] = best_location["address"]
+                        schedule["latitude"] = best_location["latitude"]
+                        schedule["longitude"] = best_location["longitude"]
+                        schedule["name"] = best_location["name"]
+                        
+                        option_modified = True
+                        force_log(f"    🔄 위치 변경:")
+                        force_log(f"      이전: {old_location}")
+                        force_log(f"      이후: {best_location['address']}")
+                    else:
+                        force_log(f"    ⚠️ 동일한 위치라서 변경 없음")
                 else:
-                    force_log(f"   ⚠️ {brand_name} 대안 위치 없음")
+                    force_log(f"    ❌ 검색 실패: 대안 위치 없음")
             
             # 6. 수정된 옵션만 추가 (중복 방지)
             if option_modified or option_num == 0:  # 첫 번째는 원본 유지
                 # 고유 ID 부여
                 for j, schedule in enumerate(option_data["fixedSchedules"]):
-                    schedule["id"] = f"{int(time.time() * 1000)}_{option_num + 1}_{j + 1}"
+                    old_id = schedule.get("id")
+                    new_id = f"{int(time.time() * 1000)}_{option_num + 1}_{j + 1}"
+                    schedule["id"] = new_id
+                    force_log(f"    🆔 ID 업데이트: {old_id} → {new_id}")
                 
                 options.append({
                     "optionId": option_num + 1,
@@ -294,20 +326,33 @@ class DynamicRouteOptimizer:
                     "flexibleSchedules": option_data.get("flexibleSchedules", [])
                 })
                 
-                force_log(f"   ✅ 옵션 {option_num + 1} 생성 완료")
+                force_log(f"  ✅ 옵션 {option_num + 1} 생성 완료 (수정됨: {option_modified})")
             else:
-                force_log(f"   ❌ 옵션 {option_num + 1} 변경 없어서 제외")
+                force_log(f"  ❌ 옵션 {option_num + 1} 변경 없어서 제외")
         
         # 7. 중복 제거
         unique_options = self.remove_duplicate_options(options)
+        force_log(f"🔄 중복 제거 결과: {len(options)}개 → {len(unique_options)}개")
         
-        # 8. 실제 다른 옵션만 반환 (fallback 제거됨)
+        # 8. 최종 결과
         force_log(f"🎉 동적 옵션 생성 완료: {len(unique_options)}개")
-        return {"options": unique_options}  # fallback 없이 실제 다른 것만
+        
+        # 생성된 옵션들 상세 로깅
+        for i, option in enumerate(unique_options):
+            force_log(f"📋 최종 옵션 {i+1}:")
+            for j, schedule in enumerate(option.get("fixedSchedules", [])):
+                force_log(f"  일정 {j+1}: '{schedule.get('name')}' @ {schedule.get('location')}")
+        
+        return {"options": unique_options}
     
     def identify_variable_schedules(self, schedules: List[Dict], voice_input: str) -> List[Dict]:
         """변경 가능한 일정 자동 식별"""
+        def force_log(msg):
+            print(f"🔍 {msg}")
+            logger.info(msg)
         
+        force_log("변경 가능한 일정 식별 시작")
+        force_log(f"입력: 일정 수={len(schedules)}, 음성='{voice_input}'")        
         variable_schedules = []
         
         # 브랜드 키워드 동적 감지
@@ -424,12 +469,13 @@ class DynamicRouteOptimizer:
             "롯데백화점": ["롯데백화점", "롯데"],
             "신세계": ["신세계백화점", "신세계"],
         }
-        
+        force_log(f"브랜드 키워드 설정: {len(brand_keywords)}개 브랜드")       
         for idx, schedule in enumerate(schedules):
             schedule_name = schedule.get("name", "").lower()
             
             # 브랜드 매칭 확인
             for brand, keywords in brand_keywords.items():
+                force_log(f"  {brand}: {keywords}")
                 if any(keyword in schedule_name for keyword in keywords):
                     variable_schedules.append({
                         "index": idx,
@@ -444,32 +490,39 @@ class DynamicRouteOptimizer:
     
     async def calculate_intermediate_areas(self, start_coord: Tuple, end_coord: Tuple, 
                                          option_num: int, total_options: int = 5) -> List[Tuple]:
-        """동적 중간 지역 좌표 계산"""
+        """동적 중간 지역 좌표 계산 - 로깅 추가"""
+        
+        def force_log(msg):
+            print(f"🗺️ {msg}")
+            logger.info(msg)
         
         start_lat, start_lng = start_coord
         end_lat, end_lng = end_coord
+        
+        force_log(f"중간 지역 계산: 옵션 {option_num + 1}")
+        force_log(f"  시작점: ({start_lat:.4f}, {start_lng:.4f})")
+        force_log(f"  종료점: ({end_lat:.4f}, {end_lng:.4f})")
         
         # 옵션별로 다른 중간점들 계산
         intermediate_coords = []
         
         if option_num == 0:
-            # 옵션 1: 출발지 근처 (20% 지점)
             ratio = 0.2
+            force_log(f"  전략: 출발지 근처 (20% 지점)")
         elif option_num == 1:
-            # 옵션 2: 중간 지점 (50% 지점)
             ratio = 0.5
+            force_log(f"  전략: 중간 지점 (50% 지점)")
         elif option_num == 2:
-            # 옵션 3: 목적지 근처 (80% 지점)
             ratio = 0.8
+            force_log(f"  전략: 목적지 근처 (80% 지점)")
         elif option_num == 3:
-            # 옵션 4: 약간 우회 경로 (중간점에서 수직으로 이동)
             ratio = 0.5
-            # 수직 오프셋 추가
-            perpendicular_offset = 0.01  # 약 1km 정도
+            perpendicular_offset = 0.01
+            force_log(f"  전략: 우회 경로 1 (중간점 + 수직 오프셋)")
         else:
-            # 옵션 5: 다른 우회 경로
             ratio = 0.3
             perpendicular_offset = -0.01
+            force_log(f"  전략: 우회 경로 2 (30% 지점 + 수직 오프셋)")
         
         # 기본 중간점 계산
         mid_lat = start_lat + (end_lat - start_lat) * ratio
@@ -477,48 +530,83 @@ class DynamicRouteOptimizer:
         
         # 우회 경로 옵션인 경우 오프셋 적용
         if option_num >= 3:
-            # 수직 방향으로 약간 이동
             if 'perpendicular_offset' in locals():
                 mid_lat += perpendicular_offset
+                force_log(f"  수직 오프셋 적용: +{perpendicular_offset}")
         
         intermediate_coords.append((mid_lat, mid_lng))
+        force_log(f"  계산된 중간점: ({mid_lat:.4f}, {mid_lng:.4f})")
         
-        logger.info(f"옵션 {option_num + 1} 중간점: ({mid_lat:.4f}, {mid_lng:.4f})")
         return intermediate_coords
     
     async def find_optimal_branch(self, brand_name: str, intermediate_areas: List[Tuple], 
-                                start_coord: Tuple, end_coord: Tuple) -> Optional[Dict]:
-        """최적의 브랜드 지점 찾기"""
+                                start_coord: Tuple, end_coord: Tuple, used_locations: Set[str] = None) -> Optional[Dict]:
+        """최적의 브랜드 지점 찾기 - 사용된 위치 제외"""
+        
+        if used_locations is None:
+            used_locations = set()
+        
+        def force_log(msg):
+            print(f"🔍 {msg}")
+            logger.info(msg)
+        
+        force_log(f"최적 브랜드 지점 검색: '{brand_name}'")
+        force_log(f"검색 지역: {len(intermediate_areas)}개")
+        force_log(f"제외할 위치: {len(used_locations)}개 - {list(used_locations)}")
         
         best_location = None
         best_efficiency = 0
         
-        for coord in intermediate_areas:
+        for i, coord in enumerate(intermediate_areas):
+            force_log(f"지역 {i+1} 검색: 좌표 ({coord[0]:.4f}, {coord[1]:.4f})")
+            
             # 해당 좌표 근처에서 브랜드 검색
             candidates = await self.search_brand_near_coordinate(brand_name, coord)
+            force_log(f"  검색 결과: {len(candidates)}개 후보")
             
-            for candidate in candidates:
+            for j, candidate in enumerate(candidates):
+                location = candidate.get('address', '')
+                force_log(f"    후보 {j+1}: {candidate.get('name')} @ {location}")
+                
+                # 🔥 이미 사용된 위치인지 확인
+                if location in used_locations:
+                    force_log(f"      ❌ 이미 사용된 위치라서 제외")
+                    continue
+                    
                 # 경로 효율성 계산
                 efficiency = self.calculate_route_efficiency(
                     start_coord, 
                     (candidate["latitude"], candidate["longitude"]), 
                     end_coord
                 )
+                force_log(f"      효율성: {efficiency:.3f}")
                 
                 if efficiency > best_efficiency:
                     best_efficiency = efficiency
                     best_location = candidate
+                    force_log(f"      🔥 새로운 최적 후보: {candidate.get('name')} (효율성: {efficiency:.3f})")
         
         if best_location:
-            logger.info(f"✅ {brand_name} 최적 지점: {best_location['name']} (효율성: {best_efficiency:.2f})")
+            force_log(f"✅ 최종 선택: {best_location['name']} (효율성: {best_efficiency:.3f})")
+            # 🔥 사용된 위치 추가
+            used_locations.add(best_location['address'])
+            force_log(f"📝 사용된 위치에 추가: {best_location['address']}")
+        else:
+            force_log(f"❌ 적절한 지점을 찾지 못함 (모두 사용된 위치이거나 검색 실패)")
         
         return best_location
+
     
     async def search_brand_near_coordinate(self, brand_name: str, coord: Tuple, 
                                          radius: int = 3000) -> List[Dict]:
-        """특정 좌표 근처에서 브랜드 검색"""
+        """특정 좌표 근처에서 브랜드 검색 - 로깅 추가"""
+        
+        def force_log(msg):
+            print(f"🔍 {msg}")
+            logger.info(msg)
         
         lat, lng = coord
+        force_log(f"브랜드 검색: '{brand_name}' @ ({lat:.4f}, {lng:.4f}), 반경: {radius}m")
         
         try:
             url = "https://dapi.kakao.com/v2/local/search/keyword.json"
@@ -533,31 +621,45 @@ class DynamicRouteOptimizer:
                 "sort": "distance"
             }
             
+            force_log(f"Kakao API 호출: query='{brand_name}'")
+            
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers, params=params) as response:
                     if response.status == 200:
                         data = await response.json()
                         
                         candidates = []
-                        for place in data.get("documents", []):
+                        places = data.get("documents", [])
+                        force_log(f"API 응답: {len(places)}개 장소")
+                        
+                        for i, place in enumerate(places):
+                            place_name = place.get("place_name", "")
+                            address = place.get("road_address_name") or place.get("address_name", "")
+                            distance = place.get("distance", "")
+                            
+                            force_log(f"  장소 {i+1}: {place_name} ({distance}m)")
+                            force_log(f"    주소: {address}")
+                            
                             candidates.append({
-                                "name": place.get("place_name", ""),
-                                "address": place.get("road_address_name") or place.get("address_name", ""),
+                                "name": place_name,
+                                "address": address,
                                 "latitude": float(place.get("y", 0)),
                                 "longitude": float(place.get("x", 0)),
-                                "distance": place.get("distance", "")
+                                "distance": distance
                             })
                         
-                        logger.info(f"🔍 {brand_name} 검색: 좌표({lat:.4f}, {lng:.4f}) 근처 {len(candidates)}개 발견")
+                        force_log(f"✅ 검색 완료: {len(candidates)}개 후보 반환")
                         return candidates
+                    else:
+                        force_log(f"❌ API 오류: HTTP {response.status}")
                         
         except Exception as e:
-            logger.error(f"❌ 브랜드 검색 오류: {e}")
+            force_log(f"❌ 검색 예외: {e}")
         
         return []
     
     def calculate_route_efficiency(self, start: Tuple, middle: Tuple, end: Tuple) -> float:
-        """경로 효율성 계산 (1에 가까울수록 효율적)"""
+        """경로 효율성 계산 - 로깅 추가"""
         
         def distance(p1, p2):
             lat1, lng1 = p1
@@ -572,39 +674,50 @@ class DynamicRouteOptimizer:
             return 0
         
         efficiency = direct_distance / route_distance
+        
+        # 상세 로깅은 너무 많아서 생략
         return efficiency
     
     def remove_duplicate_options(self, options: List[Dict]) -> List[Dict]:
-        """중복 옵션 제거"""
+        """중복 옵션 제거 - 로깅 추가"""
+        
+        def force_log(msg):
+            print(f"🔄 {msg}")
+            logger.info(msg)
+        
+        force_log(f"중복 제거 시작: {len(options)}개 옵션")
         
         unique_options = []
         seen_signatures = set()
         
-        for option in options:
+        for i, option in enumerate(options):
             # 각 옵션의 위치 시그니처 생성
             signature = self.create_location_signature(option)
+            force_log(f"옵션 {i+1} 시그니처: '{signature}'")
             
             if signature not in seen_signatures:
                 unique_options.append(option)
                 seen_signatures.add(signature)
-                logger.info(f"✅ 고유 옵션 추가: {signature}")
+                force_log(f"  ✅ 고유 옵션으로 추가")
             else:
-                logger.info(f"❌ 중복 옵션 제외: {signature}")
+                force_log(f"  ❌ 중복 옵션 제외")
         
+        force_log(f"중복 제거 완료: {len(unique_options)}개 남음")
         return unique_options
     
     def create_location_signature(self, option: Dict) -> str:
-        """옵션의 위치 시그니처 생성"""
-        
         locations = []
         for schedule in option.get("fixedSchedules", []):
             location = schedule.get("location", "")
-            # 주소의 핵심 부분만 추출 (중복 감지용)
-            if location:
-                core_location = location.split()[-2:] if len(location.split()) > 2 else [location]
-                locations.extend(core_location)
+            # 🔥 스타벅스같은 브랜드는 위치만으로 구분
+            if "스타벅스" in schedule.get("name", ""):
+                locations.append(f"starbucks@{location}")
+            else:
+                name = schedule.get("name", "")
+                locations.append(f"{name}@{location}")
+        return " | ".join(locations)
         
-        return " | ".join(sorted(locations))
+        
 
 
 class UnicodeJSONResponse(JSONResponse):
@@ -2552,7 +2665,14 @@ JSON 형식으로만 응답:
 # 3. 기존 create_simple_multiple_options 대신 GPT 기반으로 수정
 async def create_multiple_options(enhanced_data: Dict, voice_input: str) -> Dict:
     """DynamicRouteOptimizer를 사용한 다중 옵션 생성"""
+    print("🔥🔥🔥 create_multiple_options 함수 호출됨!")
+    logger.info("🔥🔥🔥 create_multiple_options 함수 호출됨!")
     
+    print(f"🔥 voice_input: {voice_input}")
+    print(f"🔥 KAKAO_REST_API_KEY 존재: {bool(KAKAO_REST_API_KEY)}")
+    
+    optimizer = DynamicRouteOptimizer(KAKAO_REST_API_KEY)
+    print("🔥 DynamicRouteOptimizer 인스턴스 생성됨")    
     optimizer = DynamicRouteOptimizer(KAKAO_REST_API_KEY)
     
     try:
@@ -3040,34 +3160,421 @@ def should_use_dynamic_system(enhanced_data: Dict, voice_input: str) -> bool:
     logger.info("📋 기본 설정 → 기존 시스템 사용")
     return False
 
-def create_traditional_options(enhanced_data: Dict, existing_options: List[Dict]) -> Dict:
-    """기존 시스템으로 옵션 생성"""
+async def create_multiple_options(self, enhanced_data: Dict, voice_input: str) -> Dict:
+    """완전 동적 다중 옵션 생성 - 위치 중복 방지 강화"""
     
-    if existing_options and len(existing_options) >= 5:
-        # 이미 5개 옵션이 있으면 그대로 사용
-        logger.info(f"✅ 기존 {len(existing_options)}개 옵션 사용")
-        return {"options": existing_options}
+    def force_log(msg):
+        print(f"🎯 {msg}")
+        logger.info(msg)
     
-    # 5개 미만이면 추가 생성
-    logger.info("🔄 기존 옵션 부족, 추가 생성")
+    force_log("🆕 동적 다중 옵션 생성 시작 (위치 중복 방지)")
+    force_log(f"입력 데이터: voice_input='{voice_input}'")
     
-    fallback_options = []
-    for i in range(5):
+    # 입력 데이터 상세 로깅
+    fixed_schedules = enhanced_data.get("fixedSchedules", [])
+    force_log(f"고정 일정 수: {len(fixed_schedules)}개")
+    for i, schedule in enumerate(fixed_schedules):
+        force_log(f"  고정 일정 {i+1}: '{schedule.get('name', 'N/A')}' (ID: {schedule.get('id', 'N/A')})")
+    
+    if len(fixed_schedules) < 2:
+        force_log("⚠️ 경로 분석에 필요한 최소 일정 부족 (2개 미만)")
+        return {"options": [enhanced_data]}  # 단일 옵션 반환
+    
+    # 1. 경로 정보 자동 추출
+    start_schedule = fixed_schedules[0]
+    end_schedule = fixed_schedules[-1]
+    
+    start_coord = (start_schedule.get("latitude"), start_schedule.get("longitude"))
+    end_coord = (end_schedule.get("latitude"), end_schedule.get("longitude"))
+    
+    force_log(f"📍 경로 분석:")
+    force_log(f"  시작: {start_schedule.get('name')} ({start_coord})")
+    force_log(f"  종료: {end_schedule.get('name')} ({end_coord})")
+    
+    # 2. 변경 가능한 일정 자동 식별 (로깅 강화)
+    variable_schedules = self.identify_variable_schedules(fixed_schedules, voice_input)
+    
+    force_log(f"🔍 변경 가능한 일정 식별 결과: {len(variable_schedules)}개")
+    for i, var_info in enumerate(variable_schedules):
+        force_log(f"  변경 가능 {i+1}: 인덱스={var_info['index']}, 브랜드='{var_info['brand']}', 원본명='{var_info['original_name']}'")
+    
+    if not variable_schedules:
+        force_log("⚠️ 변경 가능한 일정이 없음 → 단일 옵션 반환")
+        return {"options": [enhanced_data]}
+    
+    # 🔥 전역 위치 추적
+    used_locations = set()
+    
+    # 3. 각 변경 가능한 일정에 대해 동적 옵션 생성
+    options = []
+    for option_num in range(5):
+        force_log(f"🔄 옵션 {option_num + 1} 동적 생성 시작")
+        
         option_data = copy.deepcopy(enhanced_data)
+        option_modified = False
         
-        # ID만 변경
-        current_time = int(time.time() * 1000)
-        for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
-            for j, schedule in enumerate(option_data.get(schedule_type, [])):
-                schedule["id"] = f"{current_time}_{i + 1}_{j + 1}"
+        for var_info in variable_schedules:
+            schedule_idx = var_info["index"]
+            schedule = option_data["fixedSchedules"][schedule_idx]
+            brand_name = var_info["brand"]
+            
+            force_log(f"  📝 일정 수정: 인덱스={schedule_idx}, 브랜드='{brand_name}'")
+            force_log(f"    현재 이름: '{schedule.get('name')}'")
+            force_log(f"    현재 위치: '{schedule.get('location')}'")
+            
+            # 🔥 현재 위치를 사용된 위치에 추가 (첫 번째 옵션용)
+            current_location = schedule.get("location", "")
+            if option_num == 0 and current_location:
+                used_locations.add(current_location)
+                force_log(f"    📝 원본 위치 추가: {current_location}")
+            
+            # 4. 동적 중간 지역 계산
+            force_log(f"  🗺️ 중간 지역 계산 (옵션 {option_num + 1})")
+            intermediate_areas = await self.calculate_intermediate_areas(
+                start_coord, end_coord, option_num, total_options=5
+            )
+            force_log(f"    계산된 중간 지역: {intermediate_areas}")
+            
+            # 5. 해당 지역에서 브랜드 검색 (사용된 위치 제외)
+            force_log(f"  🔍 브랜드 검색: '{brand_name}' (제외: {len(used_locations)}개 위치)")
+            best_location = await self.find_optimal_branch(
+                brand_name, intermediate_areas, start_coord, end_coord, used_locations
+            )
+            
+            if best_location:
+                force_log(f"    ✅ 검색 성공: {best_location.get('name')}")
+                force_log(f"      주소: {best_location.get('address')}")
+                
+                if best_location.get("address") != schedule.get("location"):
+                    # 위치 업데이트
+                    old_location = schedule.get("location")
+                    schedule["location"] = best_location["address"]
+                    schedule["latitude"] = best_location["latitude"]
+                    schedule["longitude"] = best_location["longitude"]
+                    schedule["name"] = best_location["name"]
+                    
+                    option_modified = True
+                    force_log(f"    🔄 위치 변경:")
+                    force_log(f"      이전: {old_location}")
+                    force_log(f"      이후: {best_location['address']}")
+                else:
+                    force_log(f"    ⚠️ 동일한 위치라서 변경 없음")
+            else:
+                force_log(f"    ❌ 검색 실패: 새로운 위치 없음")
+                # 🔥 원본 위치도 사용하지 않음 (첫 번째 옵션 제외)
+                if option_num > 0:
+                    force_log(f"    ⏭️ 이 옵션 건너뛰기 (새로운 위치 없음)")
+                    break
         
-        fallback_options.append({
-            "optionId": i + 1,
-            "fixedSchedules": option_data.get("fixedSchedules", []),
-            "flexibleSchedules": option_data.get("flexibleSchedules", [])
-        })
+        # 6. 수정된 옵션만 추가 (중복 방지)
+        if option_modified or option_num == 0:  # 첫 번째는 원본 유지
+            # 고유 ID 부여
+            for j, schedule in enumerate(option_data["fixedSchedules"]):
+                old_id = schedule.get("id")
+                new_id = f"{int(time.time() * 1000)}_{option_num + 1}_{j + 1}"
+                schedule["id"] = new_id
+                force_log(f"    🆔 ID 업데이트: {old_id} → {new_id}")
+            
+            options.append({
+                "optionId": option_num + 1,
+                "fixedSchedules": option_data["fixedSchedules"],
+                "flexibleSchedules": option_data.get("flexibleSchedules", [])
+            })
+            
+            force_log(f"  ✅ 옵션 {option_num + 1} 생성 완료 (수정됨: {option_modified})")
+        else:
+            force_log(f"  ❌ 옵션 {option_num + 1} 건너뛰기 (중복 위치)")
     
-    return {"options": fallback_options}
+    # 7. 중복 제거
+    unique_options = self.remove_duplicate_options(options)
+    force_log(f"🔄 중복 제거 결과: {len(options)}개 → {len(unique_options)}개")
+    
+    # 8. 최종 결과
+    force_log(f"🎉 동적 옵션 생성 완료: {len(unique_options)}개")
+    force_log(f"📊 최종 사용된 위치: {len(used_locations)}개")
+    for i, location in enumerate(used_locations):
+        force_log(f"  위치 {i+1}: {location}")
+    
+    # 생성된 옵션들 상세 로깅
+    for i, option in enumerate(unique_options):
+        force_log(f"📋 최종 옵션 {i+1}:")
+        for j, schedule in enumerate(option.get("fixedSchedules", [])):
+            force_log(f"  일정 {j+1}: '{schedule.get('name')}' @ {schedule.get('location')}")
+    
+    return {"options": unique_options}
+
+
+async def find_optimal_branch(self, brand_name: str, intermediate_areas: List[Tuple], 
+                            start_coord: Tuple, end_coord: Tuple, used_locations: Set[str] = None) -> Optional[Dict]:
+    """최적의 브랜드 지점 찾기 - 사용된 위치 제외"""
+    
+    if used_locations is None:
+        used_locations = set()
+    
+    def force_log(msg):
+        print(f"🔍 {msg}")
+        logger.info(msg)
+    
+    force_log(f"최적 브랜드 지점 검색: '{brand_name}'")
+    force_log(f"검색 지역: {len(intermediate_areas)}개")
+    force_log(f"제외할 위치: {len(used_locations)}개 - {list(used_locations)}")
+    
+    best_location = None
+    best_efficiency = 0
+    
+    for i, coord in enumerate(intermediate_areas):
+        force_log(f"지역 {i+1} 검색: 좌표 ({coord[0]:.4f}, {coord[1]:.4f})")
+        
+        # 해당 좌표 근처에서 브랜드 검색
+        candidates = await self.search_brand_near_coordinate(brand_name, coord)
+        force_log(f"  검색 결과: {len(candidates)}개 후보")
+        
+        for j, candidate in enumerate(candidates):
+            location = candidate.get('address', '')
+            force_log(f"    후보 {j+1}: {candidate.get('name')} @ {location}")
+            
+            # 🔥 이미 사용된 위치인지 확인
+            if location in used_locations:
+                force_log(f"      ❌ 이미 사용된 위치라서 제외")
+                continue
+                
+            # 경로 효율성 계산
+            efficiency = self.calculate_route_efficiency(
+                start_coord, 
+                (candidate["latitude"], candidate["longitude"]), 
+                end_coord
+            )
+            force_log(f"      효율성: {efficiency:.3f}")
+            
+            if efficiency > best_efficiency:
+                best_efficiency = efficiency
+                best_location = candidate
+                force_log(f"      🔥 새로운 최적 후보: {candidate.get('name')} (효율성: {efficiency:.3f})")
+    
+    if best_location:
+        force_log(f"✅ 최종 선택: {best_location['name']} (효율성: {best_efficiency:.3f})")
+        # 🔥 사용된 위치 추가
+        used_locations.add(best_location['address'])
+        force_log(f"📝 사용된 위치에 추가: {best_location['address']}")
+    else:
+        force_log(f"❌ 적절한 지점을 찾지 못함 (모두 사용된 위치이거나 검색 실패)")
+    
+    return best_location
+
+
+async def create_traditional_options(enhanced_data: Dict, voice_input: str, exclude_locations: Set[str] = None) -> Dict:
+    """개선된 다중 옵션 생성 - 실제 식당명 포함 및 위치 제외"""
+    
+    if exclude_locations is None:
+        exclude_locations = set()
+    
+    def force_log(msg):
+        print(f"🍽️ {msg}")
+        logger.info(msg)
+    
+    force_log("실제 식당명 포함 다중 옵션 생성 시작")
+    force_log(f"제외할 위치: {len(exclude_locations)}개")
+    
+    try:
+        options = []
+        
+        # 경로 정보 추출
+        fixed_schedules = enhanced_data.get("fixedSchedules", [])
+        start_location = None
+        end_location = None
+        
+        if len(fixed_schedules) >= 2:
+            start_location = fixed_schedules[0].get("location", "")
+            end_location = fixed_schedules[-1].get("location", "")
+            force_log(f"경로: {start_location} → {end_location}")
+        
+        # 🔥 중복 방지를 위한 사용된 식당 추적
+        used_restaurants = set()
+        
+        # 🔥 다양한 검색 전략과 지역 조합 (하드코딩 없이)
+        base_strategies = ["맛집", "식당", "레스토랑", "음식점", "한식"]
+        
+        for option_num in range(5):
+            force_log(f"옵션 {option_num + 1} 생성 시작")
+            
+            # 원본 데이터 복사
+            option_data = copy.deepcopy(enhanced_data)
+            
+            # 식사 일정 찾아서 실제 식당으로 교체
+            for schedule_idx, schedule in enumerate(option_data.get("fixedSchedules", [])):
+                schedule_name = schedule.get("name", "").lower()
+                
+                # "식사" 관련 일정인지 확인
+                if any(word in schedule_name for word in ["식사", "저녁", "점심", "아침", "밥"]):
+                    force_log(f"   식사 일정 발견: {schedule.get('name')}")
+                    
+                    restaurant_result = None
+                    
+                    # 🔥 다양한 검색 시도 (중복 방지)
+                    for attempt in range(10):  # 최대 10번 시도
+                        # 다양한 검색어 조합 생성
+                        strategy_idx = (option_num + attempt) % len(base_strategies)
+                        search_query = base_strategies[strategy_idx]
+                        
+                        # 지역 정보 추가 (다양화)
+                        search_areas = []
+                        if start_location:
+                            import re
+                            region_match = re.search(r'(서울|부산|대구|인천|광주|대전|울산)', start_location)
+                            district_match = re.search(r'(\w+구|\w+시)', start_location)
+                            
+                            if region_match and district_match:
+                                region = region_match.group(1)
+                                district = district_match.group(1)
+                                
+                                # 🔥 옵션별로 다른 지역 순서로 검색
+                                if option_num == 0:
+                                    search_areas = [f"{region} {district} {search_query}"]
+                                elif option_num == 1:
+                                    search_areas = [f"{region} {search_query}"]
+                                elif option_num == 2:
+                                    search_areas = [f"{district} {search_query}"]
+                                elif option_num == 3:
+                                    search_areas = [f"{search_query} {region}"]
+                                else:
+                                    search_areas = [f"{search_query}"]
+                            else:
+                                search_areas = [f"{search_query}"]
+                        else:
+                            search_areas = [f"{search_query}"]
+                        
+                        # 각 검색 영역 시도
+                        for full_search_query in search_areas:
+                            force_log(f"   시도 {attempt + 1}: {full_search_query}")
+                            
+                            try:
+                                analysis = await TripleLocationSearchService.analyze_location_with_gpt(
+                                    full_search_query,
+                                    reference_location=start_location
+                                )
+                                
+                                # 🔥 각 API에서 다중 결과 가져오기
+                                all_candidates = []
+                                
+                                # 1. Kakao 다중 검색
+                                try:
+                                    reference_schedules = [{"location": start_location}] if start_location else []
+                                    kakao_result = await TripleLocationSearchService.search_kakao(analysis, reference_schedules)
+                                    if kakao_result and kakao_result.name:
+                                        all_candidates.append(kakao_result)
+                                except Exception as e:
+                                    force_log(f"     Kakao 검색 실패: {e}")
+                                
+                                # 2. Google 검색
+                                try:
+                                    google_result = await TripleLocationSearchService.search_google(analysis)
+                                    if google_result and google_result.name:
+                                        all_candidates.append(google_result)
+                                except Exception as e:
+                                    force_log(f"     Google 검색 실패: {e}")
+                                
+                                # 3. Foursquare 검색
+                                try:
+                                    foursquare_result = await TripleLocationSearchService.search_foursquare(analysis)
+                                    if foursquare_result and foursquare_result.name:
+                                        all_candidates.append(foursquare_result)
+                                except Exception as e:
+                                    force_log(f"     Foursquare 검색 실패: {e}")
+                                
+                                # 🔥 중복되지 않은 결과 찾기 (이름 + 위치 모두 확인)
+                                for candidate in all_candidates:
+                                    candidate_location = clean_address(candidate.address)
+                                    
+                                    # 이름 중복 체크
+                                    if candidate.name in used_restaurants:
+                                        force_log(f"     ❌ 이미 사용된 식당명: {candidate.name}")
+                                        continue
+                                    
+                                    # 🔥 위치 중복 체크 (제외할 위치 포함)
+                                    if candidate_location in exclude_locations:
+                                        force_log(f"     ❌ 제외 위치: {candidate_location}")
+                                        continue
+                                    
+                                    # 성공: 새로운 식당 발견
+                                    restaurant_result = candidate
+                                    used_restaurants.add(candidate.name)
+                                    exclude_locations.add(candidate_location)
+                                    force_log(f"   ✅ 새로운 식당 발견: {candidate.name}")
+                                    break
+                                
+                                if restaurant_result:
+                                    break  # 찾았으면 더 이상 검색 안 함
+                                    
+                            except Exception as e:
+                                force_log(f"     검색 시도 실패: {e}")
+                        
+                        if restaurant_result:
+                            break  # 찾았으면 더 이상 시도 안 함
+                    
+                    # 검색 결과 적용
+                    if restaurant_result and restaurant_result.name:
+                        # 실제 식당 정보로 업데이트
+                        schedule["name"] = restaurant_result.name  # 🔥 실제 식당명!
+                        schedule["location"] = clean_address(restaurant_result.address)
+                        schedule["latitude"] = restaurant_result.latitude
+                        schedule["longitude"] = restaurant_result.longitude
+                        
+                        force_log(f"   🎯 실제 식당 적용: {restaurant_result.name}")
+                        force_log(f"      📍 주소: {schedule['location']}")
+                    else:
+                        force_log(f"   ⚠️ 모든 검색 시도 실패, 원본 이름 유지")
+            
+            # 고유 ID 부여
+            current_time = int(time.time() * 1000)
+            for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
+                for j, schedule in enumerate(option_data.get(schedule_type, [])):
+                    schedule["id"] = f"{current_time}_{option_num + 1}_{j + 1}"
+            
+            # 옵션 추가
+            option = {
+                "optionId": option_num + 1,
+                "fixedSchedules": option_data.get("fixedSchedules", []),
+                "flexibleSchedules": option_data.get("flexibleSchedules", [])
+            }
+            
+            options.append(option)
+            force_log(f"✅ 옵션 {option_num + 1} 완성")
+        
+        final_result = {"options": options}
+        force_log(f"🎉 실제 식당명 포함 다중 옵션 생성 완료: {len(options)}개")
+        
+        # 결과 검증 로깅
+        for i, option in enumerate(options):
+            for schedule in option.get("fixedSchedules", []):
+                if any(word in schedule.get("name", "").lower() for word in ["식사", "식당", "맛집", "레스토랑"]):
+                    force_log(f"   옵션 {i+1} 식당: {schedule.get('name')}")
+        
+        return final_result
+        
+    except Exception as e:
+        force_log(f"❌ 실제 식당명 생성 실패: {e}")
+        
+        # 폴백: 기존 방식 (인라인으로 처리)
+        force_log("기존 방식으로 폴백 처리")
+        options = []
+        current_time = int(time.time() * 1000)
+        
+        for i in range(5):
+            option_data = copy.deepcopy(enhanced_data)
+            
+            # ID만 변경
+            for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
+                for j, schedule in enumerate(option_data.get(schedule_type, [])):
+                    schedule["id"] = f"{current_time}_{i + 1}_{j + 1}"
+            
+            options.append({
+                "optionId": i + 1,
+                "fixedSchedules": option_data.get("fixedSchedules", []),
+                "flexibleSchedules": option_data.get("flexibleSchedules", [])
+            })
+        
+        return {"options": options}
+
 
 @app.post("/extract-schedule")
 async def extract_schedule(request: ScheduleRequest):
@@ -3371,24 +3878,64 @@ JSON 형식으로 반환:
         
         try:
             options = []
-        # 🔥 사용할 시스템 자동 결정
+            # 🔥 사용할 시스템 자동 결정
             use_dynamic_system = should_use_dynamic_system(enhanced_data, request.voice_input)
             
             if use_dynamic_system:
                 force_log("🤖 DynamicRouteOptimizer 사용 (브랜드 기반)")
-                final_result = await create_multiple_options(enhanced_data, request.voice_input)
+                optimizer = DynamicRouteOptimizer(KAKAO_REST_API_KEY)
+                final_result = await optimizer.create_multiple_options(enhanced_data, request.voice_input)
                 
-                # 동적 시스템 실패시 기존 시스템으로 폴백
-                if len(final_result.get("options", [])) <= 1:
-                    force_log("🔄 동적 시스템 실패, 기존 시스템으로 폴백")
-                    final_result = create_traditional_options(enhanced_data, options)
-            else:
-                force_log("📋 기존 시스템 사용 (전략 기반)")
-                final_result = create_traditional_options(enhanced_data, options)
+                # 🔥 개선된 폴백 로직: 1개라도 성공으로 간주
+                if len(final_result.get("options", [])) >= 1:
+                    force_log(f"✅ 동적 시스템 성공: {len(final_result.get('options', []))}개 옵션")
+                    
+                    # 5개 미만이면 기존 시스템으로 추가 생성
+                    if len(final_result.get("options", [])) < 5:
+                        needed = 5 - len(final_result.get("options", []))
+                        force_log(f"🔄 추가 옵션 필요: {needed}개")
+                        
+                        # 🔥 사용된 위치 수집
+                        used_locations = set()
+                        for option in final_result.get("options", []):
+                            for schedule in option.get("fixedSchedules", []):
+                                if "스타벅스" in schedule.get("name", ""):  # 브랜드 일정만
+                                    used_locations.add(schedule.get("location", ""))
+                        
+                        # 🔥 기존 시스템으로 추가 생성 (사용된 위치 제외 로직 추가)
+                        additional_result = await create_traditional_options(
+                            enhanced_data, 
+                            request.voice_input, 
+                            exclude_locations=used_locations  # 제외할 위치 전달
+                        )
+                        
+                        # 동적 결과 + 추가 결과 결합
+                        all_options = final_result.get("options", [])
+                        
+                        for additional_option in additional_result.get("options", []):
+                            if len(all_options) >= 5:
+                                break
+                                
+                            # 중복 위치 체크
+                            is_duplicate = False
+                            for schedule in additional_option.get("fixedSchedules", []):
+                                if schedule.get("location") in used_locations:
+                                    is_duplicate = True
+                                    break
+                            
+                            if not is_duplicate:
+                                # optionId 재할당
+                                additional_option["optionId"] = len(all_options) + 1
+                                all_options.append(additional_option)
+                        
+                        final_result = {"options": all_options}
+                else:
+                    force_log("❌ 동적 시스템 완전 실패, 기존 시스템으로 폴백")
+                    final_result = await create_traditional_options(enhanced_data, request.voice_input)
             
         except Exception as e:
             force_log(f"❌ 다중 옵션 생성 실패: {e}")
-            final_result = create_traditional_options(enhanced_data, options)
+            final_result = await create_traditional_options(enhanced_data, request.voice_input)
             
         # Step 6: 최종 응답
         total_time = time.time() - start_time
