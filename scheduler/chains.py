@@ -18,7 +18,7 @@ def create_schedule_chain():
 def create_enhancement_chain():
     """시간 추론 및 우선순위 분석 체인 생성"""
     llm = ChatOpenAI(
-        model_name="gpt-4",  # 또는 "gpt-3.5-turbo"
+        model_name="gpt-3.5-turbo",  # 또는 "gpt-3.5-turbo"
         temperature=0
     )
     

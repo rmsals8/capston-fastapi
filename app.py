@@ -2678,7 +2678,7 @@ JSON 형식으로만 응답:
 """
         
         response = openai_client.chat.completions.create(
-            model="gpt-4-turbo",
+            model="gpt-3.5-turbo",
             messages=[
                 {
                     "role": "system", 
@@ -2769,7 +2769,7 @@ JSON 형식으로만 응답:
 """
         
         response = openai_client.chat.completions.create(
-            model="gpt-4-turbo",
+            model="gpt-3.5-turbo",
             messages=[
                 {
                     "role": "system", 
@@ -3754,7 +3754,7 @@ JSON 형식으로 반환:
             
             # OpenAI 호출
             response = openai_client.chat.completions.create(
-                model="gpt-4-turbo",
+                model="gpt-3.5-turbo",
                 messages=[
                     {
                         "role": "system", 
@@ -4082,7 +4082,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "app:app", 
         host="0.0.0.0", 
-        port=8082, 
+        port=8083, 
         reload=True,
         # 한글 지원을 위한 추가 설정
         access_log=True,
