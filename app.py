@@ -941,6 +941,139 @@ class AddressQualityChecker:
             keywords = [place_name]
         
         return list(set(keywords))  # 중복 제거
+    
+class RegionNormalizer:
+    """지역명 정규화 및 매칭 엔진"""
+    
+    def __init__(self):
+        self.regions_data = KOREA_REGIONS
+        self._build_normalization_maps()
+    
+    def _build_normalization_maps(self):
+        """정규화 맵을 동적으로 구축"""
+        self.region_aliases = {}
+        self.reverse_lookup = {}  # 🔥 추가된 부분
+        
+        for full_region, districts in self.regions_data.items():
+            # 표준 지역명과 축약형 생성
+            canonical = self._extract_canonical_name(full_region)
+            short_name = self._extract_short_name(full_region)
+            
+            # 모든 변형들을 표준명으로 매핑
+            aliases = [full_region, canonical, short_name]
+            
+            # 🔥 역방향 매핑도 저장
+            self.reverse_lookup[full_region] = aliases
+            
+            for alias in aliases:
+                if alias and alias.strip():
+                    self.region_aliases[alias] = full_region
+    
+    def _extract_canonical_name(self, full_name: str) -> str:
+        """표준 지역명 추출 (예: 경상남도 → 경상남)"""
+        suffixes = ['특별시', '광역시', '특별자치시', '특별자치도', '도']
+        result = full_name
+        for suffix in suffixes:
+            result = result.replace(suffix, '')
+        return result
+    
+    def _extract_short_name(self, full_name: str) -> str:
+        """축약 지역명 추출 (예: 경상남도 → 경남)"""
+        short_map = {
+            '경상남': '경남', '경상북': '경북',
+            '전라남': '전남', '전라북': '전북', 
+            '충청남': '충남', '충청북': '충북',
+            '강원특별자치': '강원', '제주특별자치': '제주'
+        }
+        
+        canonical = self._extract_canonical_name(full_name)
+        for long_form, short_form in short_map.items():
+            if long_form in canonical:
+                return short_form
+        return canonical
+    
+    def get_region_variants(self, region_name: str) -> List[str]:  # 🔥 이 메서드가 누락되어 있었음
+        """지역명의 모든 변형들을 반환"""
+        if not region_name:
+            return []
+        
+        # 직접 매핑된 변형들 찾기
+        if region_name in self.reverse_lookup:
+            return self.reverse_lookup[region_name]
+        
+        # 정규화해서 찾기
+        variants = set([region_name])
+        for alias, standard in self.region_aliases.items():
+            if standard == region_name or alias == region_name:
+                variants.add(alias)
+                variants.add(standard)
+                if standard in self.reverse_lookup:
+                    variants.update(self.reverse_lookup[standard])
+        
+        return list(variants)
+
+# 전역 인스턴스
+region_normalizer = RegionNormalizer()
+
+def check_region_match(address: str, reference_region: str) -> Tuple[bool, float]:
+    """
+    보편적 지역 매칭 함수
+    Returns: (is_match, confidence_score)
+    """
+    if not address or not reference_region:
+        return False, 0.0
+    
+    # 참조 지역 정규화
+    normalized_ref = region_normalizer.normalize_region(reference_region)
+    ref_aliases = region_normalizer.get_all_aliases(normalized_ref)
+    
+    # 주소에서 지역 추출 및 정규화
+    detected_regions = extract_regions_from_text(address)
+    
+    max_confidence = 0.0
+    is_match = False
+    
+    for detected in detected_regions:
+        normalized_detected = region_normalizer.normalize_region(detected)
+        
+        if normalized_detected == normalized_ref:
+            is_match = True
+            max_confidence = max(max_confidence, 1.0)  # 완전 일치
+        else:
+            # 부분 일치 점수 계산
+            similarity = calculate_region_similarity(normalized_ref, normalized_detected)
+            if similarity > 0.7:  # 70% 이상 유사하면 같은 지역으로 간주
+                is_match = True
+                max_confidence = max(max_confidence, similarity)
+    
+    return is_match, max_confidence
+
+def extract_regions_from_text(text: str) -> List[str]:
+    """텍스트에서 지역명들을 추출"""
+    import re
+    
+    # 지역명 패턴들
+    patterns = [
+        r'([가-힣]+(?:특별시|광역시|특별자치시|특별자치도|도))',  # 시/도
+        r'([가-힣]+(?:시|군|구))',  # 시/군/구
+        r'([가-힣]+(?:동|읍|면))',  # 동/읍/면
+    ]
+    
+    regions = []
+    for pattern in patterns:
+        matches = re.findall(pattern, text)
+        regions.extend(matches)
+    
+    return list(set(regions))  # 중복 제거
+
+def calculate_region_similarity(region1: str, region2: str) -> float:
+    """두 지역명의 유사도 계산 (0.0 ~ 1.0)"""
+    if region1 == region2:
+        return 1.0
+    
+    # 편집 거리 기반 유사도
+    from difflib import SequenceMatcher
+    return SequenceMatcher(None, region1, region2).ratio()
 class TripleLocationSearchService:
     """Foursquare + Kakao + Google 3중 위치 검색 서비스"""
     
@@ -959,7 +1092,7 @@ class TripleLocationSearchService:
             reference_context = f"\n참조 위치 (이전 일정): {reference_location}"
             reference_context += "\n'근처', '주변' 같은 표현이 있으면 이 참조 위치 근처에서 검색하세요."
         
-        # 🔥 경로 맥락 추가 (새로운 기능)
+        # 🔥 경로 맥락 추가 - KOREA_REGIONS 활용하여 전국 지원
         route_context_text = ""
         if route_context:
             route_context_text = f"\n경로 정보: {route_context}"
@@ -973,37 +1106,121 @@ class TripleLocationSearchService:
                 start_place = match.group(1).strip()
                 end_place = match.group(2).strip()
                 
-                # 출발지와 도착지 사이의 중간 지역 결정
-                start_region = None
-                end_region = None
-                
-                # 서울 지역 매핑
-                seoul_areas = {
-                    "신길역": "영등포구",
-                    "서울역": "중구",
-                    "강남역": "강남구",
-                    "홍대": "마포구",
-                    "이태원": "용산구",
-                    "명동": "중구",
-                    "잠실": "송파구",
-                    "강동": "강동구"
+                # 🔥 KOREA_REGIONS를 활용한 전국 지역 매핑
+                nationwide_areas = {
+                    # 서울특별시
+                    "서울특별시": {
+                        "신길역": "영등포구", "서울역": "중구", "강남역": "강남구", 
+                        "홍대": "마포구", "이태원": "용산구", "명동": "중구",
+                        "잠실": "송파구", "강동": "강동구", "종로": "종로구",
+                        "여의도": "영등포구", "성수": "성동구", "건대": "광진구",
+                        "신촌": "서대문구", "압구정": "강남구", "청담": "강남구"
+                    },
+                    
+                    # 부산광역시
+                    "부산광역시": {
+                        "부산역": "동구", "서면": "부산진구", "해운대": "해운대구",
+                        "광안리": "수영구", "남포동": "중구", "센텀시티": "해운대구",
+                        "부산대": "금정구", "장전역": "금정구", "온천장": "동래구",
+                        "부산터미널": "동구", "사상": "사상구", "기장": "기장군"
+                    },
+                    
+                    # 대구광역시
+                    "대구광역시": {
+                        "동성로": "중구", "수성구청": "수성구", "달서구청": "달서구",
+                        "반월당": "중구", "두류": "달서구", "대구역": "북구",
+                        "동대구역": "동구", "성서": "달서구", "칠곡": "북구"
+                    },
+                    
+                    # 인천광역시
+                    "인천광역시": {
+                        "송도": "연수구", "부평": "부평구", "인천공항": "중구",
+                        "구월동": "남동구", "인천역": "중구", "간석": "남동구",
+                        "계양": "계양구", "서구청": "서구", "강화": "강화군"
+                    },
+                    
+                    # 광주광역시
+                    "광주광역시": {
+                        "상무지구": "서구", "충장로": "동구", "광천터미널": "서구",
+                        "첨단": "광산구", "북구청": "북구", "남구청": "남구"
+                    },
+                    
+                    # 대전광역시
+                    "대전광역시": {
+                        "둔산": "서구", "유성온천": "유성구", "대전역": "동구",
+                        "서대전": "서구", "중구청": "중구", "대덕": "대덕구"
+                    },
+                    
+                    # 울산광역시
+                    "울산광역시": {
+                        "태화강": "중구", "울산대학교": "울주군", "현대중공업": "동구",
+                        "남구청": "남구", "북구청": "북구", "언양": "울주군"
+                    },
+                    
+                    # 세종특별자치시
+                    "세종특별자치시": {
+                        "세종시청": "세종시", "세종터미널": "세종시", "조치원": "세종시"
+                    },
+                    
+                    # 경기도 주요 지역
+                    "경기도": {
+                        "수원역": "수원시", "성남시청": "성남시", "안양": "안양시",
+                        "부천": "부천시", "고양": "고양시", "용인": "용인시",
+                        "김포공항": "김포시", "일산": "고양시", "분당": "성남시",
+                        "광명": "광명시", "시흥": "시흥시", "안산": "안산시",
+                        "평택": "평택시", "화성": "화성시", "파주": "파주시"
+                    },
+                    
+                    # 경상남도 주요 지역 🔥 양산 추가!
+                    "경상남도": {
+                        "양산시청": "양산시", "양산터미널": "양산시", "양산": "양산시",
+                        "창원": "창원시", "진주": "진주시", "통영": "통영시",
+                        "사천": "사천시", "김해": "김해시", "밀양": "밀양시",
+                        "거제": "거제시", "의령": "의령군", "함안": "함안군",
+                        "창녕": "창녕군", "고성": "고성군", "남해": "남해군",
+                        "하동": "하동군", "산청": "산청군", "함양": "함양군",
+                        "거창": "거창군", "합천": "합천군"
+                    }
+                    
+                    # 다른 지역들도 필요시 추가...
                 }
                 
-                for place, district in seoul_areas.items():
-                    if place in start_place:
-                        start_region = district
-                    if place in end_place:
-                        end_region = district
+                # 출발지와 도착지 지역 찾기
+                start_region = None
+                start_district = None
+                end_region = None
+                end_district = None
+                
+                # 🔥 KOREA_REGIONS에서 전국 검색
+                for region_name, districts in KOREA_REGIONS.items():
+                    if region_name in nationwide_areas:
+                        area_mapping = nationwide_areas[region_name]
+                        
+                        # 출발지 검색
+                        for place_name, district in area_mapping.items():
+                            if place_name in start_place:
+                                start_region = region_name
+                                start_district = district
+                                break
+                        
+                        # 도착지 검색
+                        for place_name, district in area_mapping.items():
+                            if place_name in end_place:
+                                end_region = region_name
+                                end_district = district
+                                break
                 
                 # 중간 지역 결정 로직
                 if start_region and end_region:
-                    # 영등포구 → 중구 경로면 중간은 용산구 또는 마포구
-                    if start_region == "영등포구" and end_region == "중구":
-                        route_context_text += f"\n중간 지점 추천 지역: 용산구, 마포구 (경로상 중간)"
-                    elif start_region == "중구" and end_region == "강남구":
-                        route_context_text += f"\n중간 지점 추천 지역: 용산구, 서초구 (경로상 중간)"
+                    if start_region == end_region:
+                        # 같은 시/도 내 이동
+                        if start_district and end_district:
+                            route_context_text += f"\n중간 지점 추천 지역: {start_district}과 {end_district} 사이 ({start_region})"
+                        else:
+                            route_context_text += f"\n중간 지점 추천 지역: {start_region} 내 중간 지점"
                     else:
-                        route_context_text += f"\n중간 지점 추천 지역: {start_region}과 {end_region} 사이"
+                        # 다른 시/도 간 이동
+                        route_context_text += f"\n중간 지점 추천 지역: {start_region}과 {end_region} 사이의 중간 도시"
 
         prompt = f"""
     다음 텍스트에서 한국의 정확한 지역 정보와 장소를 분석해주세요.
@@ -1017,13 +1234,13 @@ class TripleLocationSearchService:
     1. "근처", "주변" 같은 표현이 있으면 참조 위치와 같은 지역으로 설정하세요.
     2. "중간에" 같은 표현이 있으면 경로상의 중간 지점 지역에서 검색하세요.
     3. 모호한 표현("카페", "식당")도 참조 위치나 경로 근처에서 검색하도록 지역을 설정하세요.
-    4. 구체적인 장소명(예: 울산대학교, 문수월드컵경기장)은 정확한 위치를 우선하세요.
+    4. 구체적인 장소명(예: 양산시청, 울산대학교, 문수월드컵경기장)은 정확한 위치를 우선하세요.
     5. 경로 맥락이 있으면 지리적으로 효율적인 중간 지점을 선택하세요.
 
-    **지리적 효율성 고려사항**:
-    - 신길역(영등포구) → 서울역(중구): 중간은 용산구, 마포구
-    - 서울역(중구) → 강남역(강남구): 중간은 용산구, 서초구  
-    - 지하철 노선을 고려한 접근성 우선
+    **전국 지리적 효율성 고려사항**:
+    - 양산시 → 부산시: 중간은 부산 북구, 사상구
+    - 서울 → 부산: 중간은 대전, 대구
+    - 같은 시/도 내: 인접 구/시/군 고려
 
     JSON 형식으로 응답:
     {{
@@ -1042,12 +1259,12 @@ class TripleLocationSearchService:
                 messages=[
                     {
                         "role": "system", 
-                        "content": "당신은 한국 지역 정보 전문가입니다. 경로 맥락과 참조 위치를 고려하여 '중간에', '근처', '주변' 표현을 지리적으로 효율적으로 해석하세요. 특히 지하철 노선과 실제 이동 경로를 고려한 중간 지점을 제안하세요."
+                        "content": "당신은 한국 전국 지역 정보 전문가입니다. 경로 맥락과 참조 위치를 고려하여 '중간에', '근처', '주변' 표현을 지리적으로 효율적으로 해석하세요. 전국의 시/도와 구/시/군을 정확히 매핑하세요."
                     },
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1,
-                max_tokens=500,  # 더 자세한 응답을 위해 토큰 증가
+                max_tokens=500,
             )
 
             content = response.choices[0].message.content.strip()
@@ -1068,32 +1285,32 @@ class TripleLocationSearchService:
         except Exception as e:
             logger.error(f"❌ GPT 지역 분석 실패: {e}")
             
-            # 참조 위치나 경로 맥락이 있으면 같은 지역으로 기본값 설정
+            # 🔥 전국 기본값 설정 (KOREA_REGIONS 활용)
             default_region = "서울특별시"
             default_district = "중구"
             
             if reference_location:
-                # 참조 위치에서 지역 추출 시도
-                for region in ["울산", "서울", "부산", "대구", "인천", "광주", "대전"]:
-                    if region in reference_location:
-                        if region == "서울":
-                            default_region = "서울특별시"
-                        else:
-                            default_region = f"{region}광역시"
-                        break
-                
-                # 구 정보 추출 시도
-                for district in ["중구", "영등포구", "강남구", "마포구", "용산구"]:
-                    if district in reference_location:
-                        default_district = district
+                # 🔥 KOREA_REGIONS에서 지역 추출
+                for region_name in KOREA_REGIONS.keys():
+                    region_short = region_name.replace('특별시', '').replace('광역시', '').replace('특별자치시', '').replace('특별자치도', '').replace('도', '')
+                    if region_short in reference_location or region_name in reference_location:
+                        default_region = region_name
+                        
+                        # 해당 지역의 구/시/군 찾기
+                        districts = KOREA_REGIONS[region_name]
+                        for district in districts:
+                            if district in reference_location:
+                                default_district = district
+                                break
                         break
             
             elif route_context:
-                # 경로 맥락에서 지역 추출
-                if "서울" in route_context:
-                    default_region = "서울특별시"
-                    if "영등포" in route_context and "중구" in route_context:
-                        default_district = "용산구"  # 중간 지점
+                # 경로 맥락에서 지역 추출 (KOREA_REGIONS 활용)
+                for region_name in KOREA_REGIONS.keys():
+                    region_short = region_name.replace('특별시', '').replace('광역시', '').replace('도', '')
+                    if region_short in route_context:
+                        default_region = region_name
+                        break
             
             logger.info(f"🔄 기본값 사용: {default_region} {default_district}")
             
@@ -1705,6 +1922,43 @@ class TripleLocationSearchService:
                     
                     break
 
+        # 🆕 개선된 매칭 함수들 (기존 변수명 유지)
+        def check_region_match_improved(address: str, reference_region: str, reference_region_short: str) -> bool:
+            """개선된 지역 매칭 (기존 변수명 유지)"""
+            if not address or not reference_region:
+                return False
+            
+            # 모든 지역 변형들 가져오기
+            region_variants = region_normalizer.get_region_variants(reference_region)
+            
+            # 기존 변수들도 포함
+            all_variants = region_variants + [reference_region_short, reference_region]
+            all_variants = list(set(all_variants))  # 중복 제거
+            
+            # 매칭 확인
+            for variant in all_variants:
+                if variant and variant in address:
+                    return True
+            
+            return False
+
+        def check_district_match_improved(address: str, reference_district: str) -> bool:
+            """개선된 구/시/군 매칭"""
+            if not address or not reference_district:
+                return False
+            
+            # 정확한 매칭
+            if reference_district in address:
+                return True
+            
+            # 부분 매칭 (예: "양산시청" → "양산시")
+            if reference_district.endswith(('시', '군', '구')):
+                base_name = reference_district[:-1]  # '시', '군', '구' 제거
+                if base_name in address:
+                    return True
+            
+            return False
+
         try:
             url = "https://dapi.kakao.com/v2/local/search/keyword.json"
             headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
@@ -1725,25 +1979,25 @@ class TripleLocationSearchService:
             elif any(word in analysis.place_name.lower() for word in ['식사', '식당', '밥', '카페', '커피', '맛집']):
                 
                 if reference_district and reference_region:
-                    region_short = reference_region.replace('특별시', '').replace('광역시', '').replace('특별자치시', '').replace('특별자치도', '').replace('도', '')
+                    reference_region_short = reference_region.replace('특별시', '').replace('광역시', '').replace('특별자치시', '').replace('특별자치도', '').replace('도', '')
                     
                     # A) 동 단위 검색 (시/도 + 구/시/군 + 동)
                     if reference_dong:
                         search_strategies.extend([
-                            f"{region_short} {reference_district} {reference_dong} 맛집",
-                            f"{region_short} {reference_district} {reference_dong} 식당",
+                            f"{reference_region_short} {reference_district} {reference_dong} 맛집",
+                            f"{reference_region_short} {reference_district} {reference_dong} 식당",
                             f"{reference_district} {reference_dong} 맛집"
                         ])
                     
                     # B) 구/시/군 + 카테고리 검색 (시/도 포함)
                     search_strategies.extend([
-                        f"{region_short} {reference_district} 맛집",
-                        f"{region_short} {reference_district} 식당",
-                        f"{region_short} {reference_district} 카페",
+                        f"{reference_region_short} {reference_district} 맛집",
+                        f"{reference_region_short} {reference_district} 식당",
+                        f"{reference_region_short} {reference_district} 카페",
                         f"{reference_region} {reference_district} 맛집"  # 전체 시/도명도 시도
                     ])
                     
-                    logger.info(f"🎯 참조 지역 '{region_short} {reference_district}' 기준 검색")
+                    logger.info(f"🎯 참조 지역 '{reference_region_short} {reference_district}' 기준 검색")
                     
                 else:
                     # 참조 없으면 analysis 정보 활용
@@ -1810,14 +2064,9 @@ class TripleLocationSearchService:
                                             # 📍 참조 지역이 있을 때: 시/도 + 구/시/군 모두 확인
                                             reference_region_short = reference_region.replace('특별시', '').replace('광역시', '').replace('특별자치시', '').replace('특별자치도', '').replace('도', '')
                                             
-                                            # 주소에서 시/도 정보 확인
-                                            address_has_region = any(region_name in address for region_name in [
-                                                reference_region_short, 
-                                                reference_region
-                                            ])
-                                            
-                                            # 주소에서 구/시/군 정보 확인
-                                            address_has_district = reference_district in address
+                                            # 🆕 개선된 매칭 로직 적용
+                                            address_has_region = check_region_match_improved(address, reference_region, reference_region_short)
+                                            address_has_district = check_district_match_improved(address, reference_district)
                                             
                                             if address_has_region and address_has_district:
                                                 location_score += 10  # 🔥 시/도 + 구/시/군 모두 일치 (최고점)
@@ -1847,7 +2096,9 @@ class TripleLocationSearchService:
                                                 
                                         elif reference_district:
                                             # 참조 구/시/군만 있을 때 (시/도 정보 없음)
-                                            if reference_district in address:
+                                            address_has_district = check_district_match_improved(address, reference_district)
+                                            
+                                            if address_has_district:
                                                 # 🔥 구명만 일치하는 경우 추가 검증 필요
                                                 # 한국에서 동명이인 가능성 높은 구명들
                                                 common_district_names = ["중구", "동구", "서구", "남구", "북구"]
@@ -1867,16 +2118,14 @@ class TripleLocationSearchService:
                                             # 참조 지역 없으면 analysis 지역과 비교
                                             analysis_region_short = analysis.region.replace('특별시', '').replace('광역시', '').replace('도', '')
                                             
-                                            # 시/도 + 구/시/군 확인
-                                            address_has_analysis_region = any(region_name in address for region_name in [
-                                                analysis_region_short,
-                                                analysis.region
-                                            ])
+                                            # 🆕 개선된 매칭 로직 적용
+                                            address_has_analysis_region = check_region_match_improved(address, analysis.region, analysis_region_short)
+                                            address_has_analysis_district = check_district_match_improved(address, analysis.district)
                                             
-                                            if analysis.district in address and address_has_analysis_region:
+                                            if address_has_analysis_district and address_has_analysis_region:
                                                 location_score += 8  # 분석 지역 완전 일치
                                                 logger.info(f"     ✅ 분석 지역 완전 일치 ({analysis_region_short} {analysis.district})")
-                                            elif analysis.district in address:
+                                            elif address_has_analysis_district:
                                                 # 구명만 일치 - 동명이인 체크
                                                 common_district_names = ["중구", "동구", "서구", "남구", "북구"]
                                                 if analysis.district in common_district_names:
@@ -3416,206 +3665,189 @@ async def find_optimal_branch(self, brand_name: str, intermediate_areas: List[Tu
     return best_location
 
 
+
+
+def get_diversified_search_strategy(option_num: int, region: str, district: str) -> List[str]:
+    """옵션별로 다른 검색 전략 동적 생성"""
+    
+    if not district:
+        district = region  # 구/시/군 정보가 없으면 시/도 정보 사용
+    
+    # 🔥 옵션별 카테고리 다양화 (지역 정보는 동적)
+    category_strategies = {
+        0: ["맛집", "식당", "음식점"],                    # 옵션 1: 일반 맛집
+        1: ["한식", "갈비", "삼겹살", "국밥"],            # 옵션 2: 한식 전문
+        2: ["분식", "김밥", "떡볶이", "순대"],            # 옵션 3: 분식/간단식사
+        3: ["치킨", "햄버거", "피자", "패스트푸드"],        # 옵션 4: 치킨/패스트푸드
+        4: ["카페", "디저트", "베이커리", "커피"]          # 옵션 5: 카페/디저트
+    }
+    
+    categories = category_strategies.get(option_num, ["맛집", "식당"])
+    
+    # 🔥 동적으로 검색어 조합 생성
+    search_strategies = []
+    
+    for category in categories:
+        # 구/시/군 + 카테고리
+        if district:
+            search_strategies.append(f"{district} {category}")
+        
+        # 시/도 + 카테고리 (백업)
+        if region and region != district:
+            search_strategies.append(f"{region} {category}")
+    
+    logger.info(f"🎯 옵션 {option_num + 1} 검색 전략: {search_strategies}")
+    return search_strategies
+
+
+def extract_region_info(location: str) -> Dict[str, str]:
+    """위치 문자열에서 지역 정보 동적 추출"""
+    
+    region_info = {
+        "region": "",
+        "district": "",
+        "full_region": ""
+    }
+    
+    if not location:
+        return region_info
+    
+    # KOREA_REGIONS 데이터 활용해서 동적 매칭
+    for full_region, districts in KOREA_REGIONS.items():
+        # 시/도 매칭
+        region_variants = region_normalizer.get_region_variants(full_region)
+        
+        for variant in region_variants:
+            if variant in location:
+                region_info["full_region"] = full_region
+                region_info["region"] = variant
+                
+                # 해당 시/도의 구/시/군 찾기
+                for district in districts:
+                    if district in location:
+                        region_info["district"] = district
+                        break
+                
+                # 찾았으면 더 이상 검색하지 않음
+                if region_info["district"]:
+                    return region_info
+    
+    logger.info(f"🗺️ 추출된 지역 정보: {region_info}")
+    return region_info
 async def create_traditional_options(enhanced_data: Dict, voice_input: str, exclude_locations: Set[str] = None) -> Dict:
-    """개선된 다중 옵션 생성 - 실제 식당명 포함 및 위치 제외"""
+    """완전 동적 다중 옵션 생성 - 하드코딩 제거"""
     
     if exclude_locations is None:
         exclude_locations = set()
     
-    def force_log(msg):
-        print(f"🍽️ {msg}")
-        logger.info(msg)
-    
-    force_log("실제 식당명 포함 다중 옵션 생성 시작")
-    force_log(f"제외할 위치: {len(exclude_locations)}개")
-    
     try:
         options = []
-        
-        # 경로 정보 추출
         fixed_schedules = enhanced_data.get("fixedSchedules", [])
-        start_location = None
-        end_location = None
+        start_location = fixed_schedules[0].get("location", "") if fixed_schedules else ""
         
-        if len(fixed_schedules) >= 2:
-            start_location = fixed_schedules[0].get("location", "")
-            end_location = fixed_schedules[-1].get("location", "")
-            force_log(f"경로: {start_location} → {end_location}")
+        # 🔥 동적 지역 정보 추출
+        region_info = extract_region_info(start_location)
+        logger.info(f"🗺️ 추출된 지역 정보: {region_info}")
         
-        # 🔥 중복 방지를 위한 사용된 식당 추적
-        used_restaurants = set()
-        
-        # 🔥 다양한 검색 전략과 지역 조합 (하드코딩 없이)
-        base_strategies = ["맛집", "식당", "레스토랑", "음식점", "한식"]
+        # 🔥 전역 중복 방지
+        global_used_restaurants = set()
+        global_used_locations = set()
         
         for option_num in range(5):
-            force_log(f"옵션 {option_num + 1} 생성 시작")
+            logger.info(f"🔄 옵션 {option_num + 1} 생성 (동적 전략)")
             
-            # 원본 데이터 복사
             option_data = copy.deepcopy(enhanced_data)
+            option_modified = False
             
-            # 식사 일정 찾아서 실제 식당으로 교체
             for schedule_idx, schedule in enumerate(option_data.get("fixedSchedules", [])):
                 schedule_name = schedule.get("name", "").lower()
                 
-                # "식사" 관련 일정인지 확인
-                
+                if any(word in schedule_name for word in ["식사", "식당", "밥", "맛집", "먹기", "햄버거"]):
                     
-                restaurant_result = None
-         # 🔥 다양한 검색 시도 (중복 방지)
-                for attempt in range(10):  # 최대 10번 시도
-                        # 다양한 검색어 조합 생성
-                        strategy_idx = (option_num + attempt) % len(base_strategies)
-                        search_query = base_strategies[strategy_idx]
-                        
-                        # 지역 정보 추가 (다양화)
-                        search_areas = []
-                        if start_location:
-                            import re
-                            region_match = re.search(r'(서울|부산|대구|인천|광주|대전|울산)', start_location)
-                            district_match = re.search(r'(\w+구|\w+시)', start_location)
-                            
-                            if region_match and district_match:
-                                region = region_match.group(1)
-                                district = district_match.group(1)
-                                
-                                # 🔥 옵션별로 다른 지역 순서로 검색
-                                if option_num == 0:
-                                    search_areas = [f"{region} {district} {search_query}"]
-                                elif option_num == 1:
-                                    search_areas = [f"{region} {search_query}"]
-                                elif option_num == 2:
-                                    search_areas = [f"{district} {search_query}"]
-                                elif option_num == 3:
-                                    search_areas = [f"{search_query} {region}"]
-                                else:
-                                    search_areas = [f"{search_query}"]
-                            else:
-                                search_areas = [f"{search_query}"]
-                        else:
-                            search_areas = [f"{search_query}"]
-                        
-                        # 각 검색 영역 시도
-                        for full_search_query in search_areas:
-                            force_log(f"   시도 {attempt + 1}: {full_search_query}")
-                            
-                            try:
-                                analysis = await TripleLocationSearchService.analyze_location_with_gpt(
-                                    full_search_query,
-                                    reference_location=start_location
-                                )
-                                
-                                # 🔥 각 API에서 다중 결과 가져오기
-                                all_candidates = []
-                                
-                                # 1. Kakao 다중 검색
-                                try:
-                                    reference_schedules = [{"location": start_location}] if start_location else []
-                                    kakao_result = await TripleLocationSearchService.search_kakao(analysis, reference_schedules)
-                                    if kakao_result and kakao_result.name:
-                                        all_candidates.append(kakao_result)
-                                except Exception as e:
-                                    force_log(f"     Kakao 검색 실패: {e}")
-                                
-                                # 2. Google 검색
-                                try:
-                                    google_result = await TripleLocationSearchService.search_google(analysis)
-                                    if google_result and google_result.name:
-                                        all_candidates.append(google_result)
-                                except Exception as e:
-                                    force_log(f"     Google 검색 실패: {e}")
-                                
-                                # 3. Foursquare 검색
-                                try:
-                                    foursquare_result = await TripleLocationSearchService.search_foursquare(analysis)
-                                    if foursquare_result and foursquare_result.name:
-                                        all_candidates.append(foursquare_result)
-                                except Exception as e:
-                                    force_log(f"     Foursquare 검색 실패: {e}")
-                                
-                                # 🔥 중복되지 않은 결과 찾기 (이름 + 위치 모두 확인)
-                                for candidate in all_candidates:
-                                    candidate_location = clean_address(candidate.address)
-                                    
-                                    # 이름 중복 체크
-                                    if candidate.name in used_restaurants:
-                                        force_log(f"     ❌ 이미 사용된 식당명: {candidate.name}")
-                                        continue
-                                    
-                                    # 🔥 위치 중복 체크 (제외할 위치 포함)
-                                    if candidate_location in exclude_locations:
-                                        force_log(f"     ❌ 제외 위치: {candidate_location}")
-                                        continue
-                                    
-                                    # 성공: 새로운 식당 발견
-                                    restaurant_result = candidate
-                                    used_restaurants.add(candidate.name)
-                                    exclude_locations.add(candidate_location)
-                                    force_log(f"   ✅ 새로운 식당 발견: {candidate.name}")
-                                    break
-                                
-                                if restaurant_result:
-                                    break  # 찾았으면 더 이상 검색 안 함
-                                    
-                            except Exception as e:
-                                force_log(f"     검색 시도 실패: {e}")
-                        
-                        if restaurant_result:
-                            break  # 찾았으면 더 이상 시도 안 함
+                    # 🔥 완전 동적 검색 전략 생성
+                    search_strategies = get_diversified_search_strategy(
+                        option_num, 
+                        region_info["region"], 
+                        region_info["district"]
+                    )
                     
-                        # 검색 결과 적용
-                        if restaurant_result and restaurant_result.name:
-                            # 실제 식당 정보로 업데이트
-                            schedule["name"] = restaurant_result.name  # 🔥 실제 식당명!
-                            schedule["location"] = clean_address(restaurant_result.address)
-                            schedule["latitude"] = restaurant_result.latitude
-                            schedule["longitude"] = restaurant_result.longitude
-                            
-                            force_log(f"   🎯 실제 식당 적용: {restaurant_result.name}")
-                            force_log(f"      📍 주소: {schedule['location']}")
-                        else:
-                            force_log(f"   ⚠️ 모든 검색 시도 실패, 원본 이름 유지")           
+                    restaurant_result = None
                     
-                
-                # 고유 ID 부여
-                current_time = int(time.time() * 1000)
-                for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
-                    for j, schedule in enumerate(option_data.get(schedule_type, [])):
-                        schedule["id"] = f"{current_time}_{option_num + 1}_{j + 1}"
-                
-                # 옵션 추가
-                option = {
-                    "optionId": option_num + 1,
-                    "fixedSchedules": option_data.get("fixedSchedules", []),
-                    "flexibleSchedules": option_data.get("flexibleSchedules", [])
-                }
-                
-                options.append(option)
-                force_log(f"✅ 옵션 {option_num + 1} 완성")
+                    for strategy in search_strategies:
+                        logger.info(f"   🔍 옵션 {option_num + 1} 검색: {strategy}")
+                        
+                        try:
+                            # GPT 분석 (동적)
+                            analysis = await TripleLocationSearchService.analyze_location_with_gpt(
+                                strategy, reference_location=start_location
+                            )
+                            
+                            # 🔥 Kakao 검색 (결과 다양화)
+                            reference_schedules = [{"location": start_location}] if start_location else []
+                            kakao_result = await TripleLocationSearchService.search_kakao(analysis, reference_schedules)
+                            
+                            if kakao_result and kakao_result.name:
+                                candidate_name = kakao_result.name
+                                candidate_location = clean_address(kakao_result.address)
+                                
+                                # 🔥 전역 중복 체크
+                                if (candidate_name in global_used_restaurants or 
+                                    candidate_location in global_used_locations):
+                                    logger.info(f"     ❌ 중복 제외: {candidate_name}")
+                                    continue
+                                
+                                # 새로운 식당 발견
+                                restaurant_result = kakao_result
+                                global_used_restaurants.add(candidate_name)
+                                global_used_locations.add(candidate_location)
+                                logger.info(f"     ✅ 새로운 식당: {candidate_name}")
+                                break
+                                
+                        except Exception as e:
+                            logger.error(f"     ❌ 검색 오류: {e}")
+                            continue
+                    
+                    # 결과 적용
+                    if restaurant_result:
+                        schedule["name"] = restaurant_result.name
+                        schedule["location"] = clean_address(restaurant_result.address)
+                        schedule["latitude"] = restaurant_result.latitude
+                        schedule["longitude"] = restaurant_result.longitude
+                        option_modified = True
+                        logger.info(f"   🎯 식당 적용: {restaurant_result.name}")
+                    else:
+                        logger.info(f"   ⚠️ 새로운 식당 찾기 실패, 원본 유지")
             
-            final_result = {"options": options}
-            force_log(f"🎉 실제 식당명 포함 다중 옵션 생성 완료: {len(options)}개")
+            # 🔥 고유 ID 설정
+            current_time = int(time.time() * 1000)
+            for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
+                for j, schedule in enumerate(option_data.get(schedule_type, [])):
+                    schedule["id"] = f"{current_time}_{option_num + 1}_{j + 1}"
             
-            # 결과 검증 로깅
-            for i, option in enumerate(options):
-                for schedule in option.get("fixedSchedules", []):
-                    if any(word in schedule.get("name", "").lower() for word in ["식사", "식당", "맛집", "레스토랑"]):
-                        force_log(f"   옵션 {i+1} 식당: {schedule.get('name')}")
+            option = {
+                "optionId": option_num + 1,  # 🔥 1, 2, 3, 4, 5
+                "fixedSchedules": option_data.get("fixedSchedules", []),
+                "flexibleSchedules": option_data.get("flexibleSchedules", [])
+            }
             
-            return final_result
+            options.append(option)
+            logger.info(f"✅ 옵션 {option_num + 1} 완성 (수정됨: {option_modified})")
+        
+        logger.info(f"🎉 동적 다중 옵션 생성 완료: {len(options)}개")
+        logger.info(f"📊 사용된 식당: {global_used_restaurants}")
+        
+        return {"options": options}
         
     except Exception as e:
-        force_log(f"❌ 실제 식당명 생성 실패: {e}")
+        logger.error(f"❌ 동적 다중 옵션 생성 실패: {e}")
         
-        # 폴백: 기존 방식 (인라인으로 처리)
-        force_log("기존 방식으로 폴백 처리")
+        # 폴백: 기본 다중 옵션
         options = []
         current_time = int(time.time() * 1000)
         
         for i in range(5):
             option_data = copy.deepcopy(enhanced_data)
             
-            # ID만 변경
             for schedule_type in ["fixedSchedules", "flexibleSchedules"]:
                 for j, schedule in enumerate(option_data.get(schedule_type, [])):
                     schedule["id"] = f"{current_time}_{i + 1}_{j + 1}"
@@ -3627,7 +3859,6 @@ async def create_traditional_options(enhanced_data: Dict, voice_input: str, excl
             })
         
         return {"options": options}
-
 
 @app.post("/extract-schedule")
 async def extract_schedule(request: ScheduleRequest):
