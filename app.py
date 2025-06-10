@@ -4149,30 +4149,33 @@ class ScheduleExpansionRequest(BaseModel):
     schedules: List[Dict[str, Any]]
 
 def enhanced_has_meal_schedules(schedules: List[Dict[str, Any]]) -> bool:
-    """강화된 식사 관련 일정 감지"""
+    """강화된 식사 관련 일정 감지 - 누락 방지"""
     
-    # 🔥 더 포괄적인 식사 키워드
     meal_keywords = [
         # 기본 식사
         "식사", "밥", "저녁", "점심", "아침", "맛집", "먹기", "식당",
-        # 카페/음료
+        # 카페/음료  
         "카페", "커피", "coffee", "cafe", "브런치", "brunch", "디저트", "dessert",
+        # 🔥 "타임" 키워드 강화
+        "타임", "time", "런치", "lunch", "dinner", "breakfast",
         # 구체적 음식
         "치킨", "피자", "햄버거", "파스타", "라면", "국밥", "갈비", "삼겹살",
-        # 식사 시간
-        "타임", "time", "런치", "lunch", "dinner", "breakfast",
         # 식사 관련 활동
         "회식", "술", "맥주", "소주", "와인", "bar", "pub"
     ]
     
-    for schedule in schedules:
+    detected_schedules = []
+    
+    for i, schedule in enumerate(schedules):
         name = schedule.get("name", "").lower()
         for keyword in meal_keywords:
             if keyword in name:
-                print(f"🍽️ 식사 키워드 '{keyword}' 발견 in '{name}'")
-                return True
+                detected_schedules.append((i, name, keyword))
+                print(f"🍽️ 식사 키워드 '{keyword}' 발견 in '{name}' (인덱스: {i})")
+                break  # 하나 찾으면 다음 일정으로
     
-    return False
+    print(f"🔍 총 {len(detected_schedules)}개 식사 일정 감지됨")
+    return len(detected_schedules) > 0
 
 def create_enhanced_voice_input(schedules: List[Dict[str, Any]]) -> str:
     """일정들을 분석하여 더 구체적인 가짜 음성 입력 생성"""
@@ -4210,13 +4213,21 @@ def create_enhanced_voice_input(schedules: List[Dict[str, Any]]) -> str:
 
 @app.post("/expand-schedule-options")
 async def expand_schedule_options(request: ScheduleExpansionRequest):
-    """🔥 기존 시스템 완전 재활용 + 강화된 다중 옵션 생성"""
+    """🔥 LangChain + extract-schedule 활용한 최적화된 다중 옵션 생성 (데이터 무결성 보장)"""
+    import time
+    import datetime as dt
     
-    def force_log(msg):
-        print(f"🔄 {msg}")
-        logger.info(msg)
+    # 강제 로깅 함수 (시간 측정 포함)
+    def force_log(message):
+        timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        output = f"🔥 {timestamp} - {message}"
+        print(output)
+        logger.info(message)
+        return output
     
-    force_log("=== 강화된 다중 옵션 시스템 시작 ===")
+    # 전체 시작 시간
+    total_start_time = time.time()
+    force_log("=== 최적화된 다중 옵션 시스템 시작 ===")
     force_log(f"입력 일정 수: {len(request.schedules)}개")
     
     # 입력 일정 상세 로깅
@@ -4224,8 +4235,9 @@ async def expand_schedule_options(request: ScheduleExpansionRequest):
         force_log(f"  일정 {i+1}: '{schedule.get('name', 'N/A')}' @ '{schedule.get('location', 'N/A')}'")
     
     try:
-        # Step 1: 강화된 식사 일정 감지
-        force_log("Step 1: 강화된 식사 일정 감지")
+        # Step 1: 🔥 최적화 - 빠른 식사 일정 감지
+        step_start = time.time()
+        force_log("Step 1: 빠른 식사 일정 감지")
         
         if not enhanced_has_meal_schedules(request.schedules):
             force_log("   식사 일정이 없어서 원본만 반환")
@@ -4237,483 +4249,226 @@ async def expand_schedule_options(request: ScheduleExpansionRequest):
                 }]
             })
         
-        force_log("   ✅ 식사 관련 일정 감지됨")
+        step_time = time.time() - step_start
+        force_log(f"   ✅ 식사 관련 일정 감지됨 ({step_time:.2f}초)")
         
-        # Step 2: 기존 extract-schedule 형식으로 변환
-        force_log("Step 2: 기존 schedule_data 형식으로 변환")
+        # Step 2: 🔥 최적화 - 가짜 음성 입력 생성 (LangChain용)
+        step_start = time.time()
+        force_log("Step 2: LangChain용 음성 입력 생성")
         
-        schedule_data = {
-            "fixedSchedules": [],
-            "flexibleSchedules": []
-        }
+        # 더 간단하고 빠른 음성 입력 생성
+        meal_names = []
+        locations = []
         
-        # 모든 일정을 fixedSchedules로 변환
         for schedule in request.schedules:
-            fixed_schedule = {
-                "id": schedule.get("id", f"expand_{int(time.time() * 1000)}_{len(schedule_data['fixedSchedules'])}"),
-                "name": schedule.get("name", "일정"),
-                "type": "FIXED",
-                "duration": schedule.get("duration", 60),
-                "priority": schedule.get("priority", len(schedule_data['fixedSchedules']) + 1),
-                "location": schedule.get("location", ""),
-                "latitude": schedule.get("latitude", 37.5665),
-                "longitude": schedule.get("longitude", 126.9780),
-                "startTime": schedule.get("startTime", ""),
-                "endTime": schedule.get("endTime", "")
-            }
-            
-            schedule_data["fixedSchedules"].append(fixed_schedule)
-        
-        force_log(f"✅ 변환 완료: 고정 일정 {len(schedule_data['fixedSchedules'])}개")
-        
-        # Step 3: 🔥 역/공항 등 특화된 위치 보강 시스템 호출
-        force_log("Step 3: 역/공항 특화 위치 보강 + 기존 시스템 호출")
-        
-        try:
-            # 🔥 Step 3-1: 역/공항 등 구체적 장소에 대한 특화 검색
-            for i, schedule in enumerate(schedule_data["fixedSchedules"]):
-                name = schedule.get("name", "").lower()
-                current_location = schedule.get("location", "")
-                
-                # 역, 공항, 터미널 등 구체적 장소 감지
-                if any(keyword in name for keyword in ['역', 'station', '공항', 'airport', '터미널', 'terminal', '대학교', 'university']):
-                    force_log(f"  🚉 구체적 장소 감지: '{schedule.get('name')}'")
-                    
-                    # 현재 위치가 부정확하거나 없으면 재검색
-                    if not current_location or len(current_location) < 10:
-                        force_log(f"    🔍 '{schedule.get('name')}' 정확한 위치 재검색")
-                        
-                        # 🔥 Kakao 우선 검색 (기존 시스템 활용)
-                        reference_schedules = []
-                        if i > 0:  # 이전 일정이 있으면 참조로 활용
-                            reference_schedules = [schedule_data["fixedSchedules"][i-1]]
-                        
-                        enhanced_schedule = await enhance_single_schedule_triple(
-                            schedule, reference_schedules
-                        )
-                        
-                        # 결과 적용
-                        if enhanced_schedule.get("location") and enhanced_schedule["location"] != current_location:
-                            schedule["location"] = enhanced_schedule["location"]
-                            schedule["latitude"] = enhanced_schedule.get("latitude", schedule.get("latitude"))
-                            schedule["longitude"] = enhanced_schedule.get("longitude", schedule.get("longitude"))
-                            
-                            force_log(f"    ✅ 위치 업데이트: {enhanced_schedule['location']}")
-                        else:
-                            force_log(f"    ⚠️ 재검색 결과 없음")
-            
-            # 🔥 Step 3-2: 기존 전체 위치 보강 시스템 호출
-            enhanced_data = await asyncio.wait_for(
-                enhance_locations_with_triple_api(schedule_data),
-                timeout=30
-            )
-            force_log("✅ 전체 위치 정보 보강 완료")
-            
-        except Exception as e:
-            force_log(f"⚠️ 위치 정보 보강 실패: {e}")
-            enhanced_data = schedule_data
-        
-        # Step 4: 강화된 음성 입력 생성
-        force_log("Step 4: 강화된 음성 입력 생성")
-        
-        enhanced_voice_input = create_enhanced_voice_input(request.schedules)
-        
-        # Step 5: 🔥 강제 다중 옵션 생성 시스템
-        force_log("Step 5: 강제 다중 옵션 생성 시스템")
-        
-        # 식사 관련 일정 인덱스 찾기
-        meal_schedule_indices = []
-        for i, schedule in enumerate(enhanced_data.get("fixedSchedules", [])):
             name = schedule.get("name", "").lower()
+            location = schedule.get("location", "")
+            
+            # 식사 관련 일정 수집
             if any(word in name for word in ["식사", "브런치", "점심", "저녁", "카페", "커피", "타임"]):
-                meal_schedule_indices.append(i)
-                force_log(f"  🍽️ 식사 일정 발견: 인덱스 {i}, 이름 '{schedule.get('name')}'")
-        
-        if not meal_schedule_indices:
-            force_log("  ⚠️ 식사 일정이 없어서 단일 옵션 반환")
-            final_result = {"options": [{"optionId": 1, "fixedSchedules": enhanced_data["fixedSchedules"], "flexibleSchedules": []}]}
-        else:
-            # 🔥 강제로 5개 다른 옵션 생성
-            force_log(f"  🔥 {len(meal_schedule_indices)}개 식사 일정에 대해 강제 다중 옵션 생성")
+                meal_names.append(name)
             
-            options = []
-            used_restaurants = set()
-            
-            # 참조 지역 추출
-            reference_location = "서울"
-            for schedule in enhanced_data.get("fixedSchedules", []):
-                location = schedule.get("location", "")
-                if "서울" in location:
-                    reference_location = "서울"
-                    break
-                elif "부산" in location:
-                    reference_location = "부산"
-                    break
-                elif "대구" in location:
-                    reference_location = "대구"
-                    break
-            
-            force_log(f"  📍 참조 지역: {reference_location}")
-            
-            # 5개 옵션별 검색 전략
-            search_strategies = [
-                {"keywords": ["맛집", "인기"], "categories": ["한식", "양식"]},      # 옵션 1: 인기 맛집
-                {"keywords": ["한식", "전통"], "categories": ["한식", "갈비"]},     # 옵션 2: 한식 전통
-                {"keywords": ["분식", "김밥"], "categories": ["분식", "김밥"]},     # 옵션 3: 분식
-                {"keywords": ["카페", "커피"], "categories": ["카페", "디저트"]},   # 옵션 4: 카페
-                {"keywords": ["치킨", "피자"], "categories": ["치킨", "피자"]}      # 옵션 5: 패스트푸드
-            ]
-            
-            for option_num in range(5):
-                force_log(f"  🔄 옵션 {option_num + 1} 생성 중...")
-                
-                option_data = copy.deepcopy(enhanced_data)
-                option_modified = False
-                strategy = search_strategies[option_num]
-                
-                # 각 식사 일정 처리
-                for meal_idx in meal_schedule_indices:
-                    if meal_idx < len(option_data["fixedSchedules"]):
-                        schedule = option_data["fixedSchedules"][meal_idx]
-                        original_name = schedule.get("name", "")
-                        
-                        force_log(f"    🍽️ 일정 수정: '{original_name}' (인덱스: {meal_idx})")
-                        
-                        # 🔥 직접 Kakao API 검색
-                        search_query = f"{reference_location} {strategy['keywords'][0]}"
-                        
-                        try:
-                            new_restaurant = await search_restaurants_directly(search_query, used_restaurants)
-                            
-                            if new_restaurant:
-                                # 일정 업데이트
-                                schedule["name"] = new_restaurant["name"]
-                                schedule["location"] = new_restaurant["address"]
-                                schedule["latitude"] = new_restaurant["latitude"] 
-                                schedule["longitude"] = new_restaurant["longitude"]
-                                
-                                used_restaurants.add(new_restaurant["name"])
-                                option_modified = True
-                                
-                                force_log(f"      ✅ 새로운 식당: {new_restaurant['name']}")
-                                force_log(f"      📍 주소: {new_restaurant['address']}")
-                            else:
-                                force_log(f"      ⚠️ 새로운 식당 찾기 실패")
-                                
-                        except Exception as e:
-                            force_log(f"      ❌ 검색 오류: {e}")
-                
-                # 고유 ID 부여
-                current_time = int(time.time() * 1000)
-                for j, schedule in enumerate(option_data["fixedSchedules"]):
-                    schedule["id"] = f"{current_time}_{option_num + 1}_{j + 1}"
-                
-                # 옵션 추가
-                options.append({
-                    "optionId": option_num + 1,
-                    "fixedSchedules": option_data["fixedSchedules"],
-                    "flexibleSchedules": option_data.get("flexibleSchedules", [])
-                })
-                
-                force_log(f"    ✅ 옵션 {option_num + 1} 완성 (수정됨: {option_modified})")
-            
-            final_result = {"options": options}
-            force_log(f"🎉 강제 다중 옵션 생성 완료: {len(options)}개")
-        
-        # Step 6: 결과가 부족하면 추가 검색
-        force_log("Step 6: 결과 품질 검증 및 보강")
-        
-        option_count = len(final_result.get('options', []))
-        force_log(f"초기 옵션 수: {option_count}개")
-        
-        # 옵션이 부족하거나 모두 동일하면 추가 검색
-        if option_count < 5:
-            force_log(f"🔄 옵션 부족 ({option_count}개), 추가 생성 시도")
-            
-            # 브랜드 시스템도 시도
-            try:
-                optimizer = DynamicRouteOptimizer(KAKAO_REST_API_KEY)
-                additional_result = await optimizer.create_multiple_options(enhanced_data, enhanced_voice_input)
-                
-                if len(additional_result.get("options", [])) > option_count:
-                    force_log("✅ 동적 시스템으로 더 많은 옵션 생성됨")
-                    final_result = additional_result
-                
-            except Exception as e:
-                force_log(f"⚠️ 추가 검색 실패: {e}")
-        
-        # Step 7: 각 옵션의 품질 검증 및 로깅
-        force_log("Step 7: 최종 결과 품질 검증")
-        
-        final_option_count = len(final_result.get('options', []))
-        force_log(f"최종 옵션 수: {final_option_count}개")
-        
-        # 각 옵션의 다양성 체크
-        unique_locations = set()
-        unique_names = set()
-        
-        for i, option in enumerate(final_result.get('options', [])):
-            force_log(f"옵션 {i+1} 품질 검증:")
-            
-            for j, schedule in enumerate(option.get('fixedSchedules', [])):
-                name = schedule.get('name', 'N/A')
-                location = schedule.get('location', 'N/A')
-                
-                force_log(f"  일정 {j+1}: '{name}' @ '{location[:50]}...'")
-                
-                # 식사 관련 일정의 다양성 체크
-                if any(word in name.lower() for word in ["식사", "브런치", "점심", "저녁", "카페"]):
-                    unique_locations.add(location)
-                    unique_names.add(name)
-        
-        force_log(f"📊 다양성 분석: 고유 위치 {len(unique_locations)}개, 고유 이름 {len(unique_names)}개")
-        
-        # Step 8: 원본 구조 보존
-        force_log("Step 8: 원본 구조 보존")
-        
-        for i, option in enumerate(final_result.get("options", [])):
-            for j, schedule in enumerate(option.get("fixedSchedules", [])):
-                if j < len(request.schedules):
-                    original = request.schedules[j]
-                    
-                    # 원본의 시간 정보 보존
-                    for time_field in ["startTime", "endTime", "duration"]:
-                        if time_field in original:
-                            schedule[time_field] = original[time_field]
-                    
-                    # 원본의 우선순위 보존
-                    if "priority" in original:
-                        schedule["priority"] = original["priority"]
-        
-        force_log("=== 강화된 다중 옵션 시스템 완료 ===")
-        return UnicodeJSONResponse(content=final_result, status_code=200)
-        
-    except Exception as e:
-        force_log(f"❌ 전체 프로세스 실패: {e}")
-        import traceback
-        force_log(f"상세 오류: {traceback.format_exc()}")
-        
-        # 최종 폴백
-        fallback_options = []
-        current_time = int(time.time() * 1000)
-        
-        for i in range(5):
-            schedules_copy = copy.deepcopy(request.schedules)
-            
-            for j, schedule in enumerate(schedules_copy):
-                schedule["id"] = f"{current_time}_fallback_{i + 1}_{j + 1}"
-            
-            fallback_options.append({
-                "optionId": i + 1,
-                "fixedSchedules": schedules_copy,
-                "flexibleSchedules": []
-            })
-        
-        return UnicodeJSONResponse(content={"options": fallback_options}, status_code=200)
-
-class ScheduleExpansionRequest(BaseModel):
-    """일정 확장 요청 모델"""
-    schedules: List[Dict[str, Any]]
-
-def enhanced_has_meal_schedules(schedules: List[Dict[str, Any]]) -> bool:
-    """강화된 식사 관련 일정 감지"""
-    
-    # 🔥 더 포괄적인 식사 키워드
-    meal_keywords = [
-        # 기본 식사
-        "식사", "밥", "저녁", "점심", "아침", "맛집", "먹기", "식당",
-        # 카페/음료
-        "카페", "커피", "coffee", "cafe", "브런치", "brunch", "디저트", "dessert",
-        # 구체적 음식
-        "치킨", "피자", "햄버거", "파스타", "라면", "국밥", "갈비", "삼겹살",
-        # 식사 시간
-        "타임", "time", "런치", "lunch", "dinner", "breakfast",
-        # 식사 관련 활동
-        "회식", "술", "맥주", "소주", "와인", "bar", "pub"
-    ]
-    
-    for schedule in schedules:
-        name = schedule.get("name", "").lower()
-        for keyword in meal_keywords:
-            if keyword in name:
-                print(f"🍽️ 식사 키워드 '{keyword}' 발견 in '{name}'")
-                return True
-    
-    return False
-
-def create_enhanced_voice_input(schedules: List[Dict[str, Any]]) -> str:
-    """일정들을 분석하여 더 구체적인 가짜 음성 입력 생성"""
-    
-    meal_items = []
-    locations = []
-    
-    for schedule in schedules:
-        name = schedule.get("name", "").lower()
-        location = schedule.get("location", "")
-        
-        # 식사 관련 일정 수집
-        if any(word in name for word in ["식사", "브런치", "점심", "저녁", "카페", "커피", "타임"]):
-            meal_items.append(name)
-        
-        # 지역 정보 수집
-        if location:
+            # 지역 정보 수집 (단순화)
             if "서울" in location:
                 locations.append("서울")
             elif "부산" in location:
                 locations.append("부산")
-            # 기타 지역도 추가 가능
-    
-    # 더 구체적인 음성 입력 생성
-    if meal_items and locations:
+            elif "대구" in location:
+                locations.append("대구")
+        
+        # 🔥 간단한 음성 입력 생성
         location_str = locations[0] if locations else "서울"
-        meal_str = ", ".join(meal_items)
+        if meal_names:
+            synthetic_voice_input = f"{location_str}에서 {', '.join(meal_names[:2])} 다양한 옵션"
+        else:
+            synthetic_voice_input = f"{location_str}에서 브런치, 카페 다양한 옵션"
         
-        voice_input = f"{location_str}에서 {meal_str} 다양한 옵션을 원합니다. 각각 다른 식당들로 추천해주세요."
-    else:
-        voice_input = "서울에서 다양한 식사 옵션을 원합니다. 브런치, 카페, 식당 등 각각 다른 곳들로 추천해주세요."
-    
-    print(f"🎤 생성된 음성 입력: '{voice_input}'")
-    return voice_input
-
-@app.post("/expand-schedule-options")
-async def expand_schedule_options(request: ScheduleExpansionRequest):
-    """🔥 기존 시스템 완전 재활용 + 강화된 다중 옵션 생성"""
-    
-    def force_log(msg):
-        print(f"🔄 {msg}")
-        logger.info(msg)
-    
-    force_log("=== 강화된 다중 옵션 시스템 시작 ===")
-    force_log(f"입력 일정 수: {len(request.schedules)}개")
-    
-    # 입력 일정 상세 로깅
-    for i, schedule in enumerate(request.schedules):
-        force_log(f"  일정 {i+1}: '{schedule.get('name', 'N/A')}' @ '{schedule.get('location', 'N/A')}'")
-    
-    try:
-        # Step 1: 강화된 식사 일정 감지
-        force_log("Step 1: 강화된 식사 일정 감지")
+        step_time = time.time() - step_start
+        force_log(f"🎤 생성된 음성 입력: '{synthetic_voice_input}' ({step_time:.3f}초)")
         
-        if not enhanced_has_meal_schedules(request.schedules):
-            force_log("   식사 일정이 없어서 원본만 반환")
-            return UnicodeJSONResponse(content={
-                "options": [{
-                    "optionId": 1,
-                    "fixedSchedules": request.schedules,
-                    "flexibleSchedules": []
-                }]
-            })
-        
-        force_log("   ✅ 식사 관련 일정 감지됨")
-        
-        # Step 2: 기존 extract-schedule 형식으로 변환
-        force_log("Step 2: 기존 schedule_data 형식으로 변환")
-        
-        schedule_data = {
-            "fixedSchedules": [],
-            "flexibleSchedules": []
-        }
-        
-        # 모든 일정을 fixedSchedules로 변환
-        for schedule in request.schedules:
-            fixed_schedule = {
-                "id": schedule.get("id", f"expand_{int(time.time() * 1000)}_{len(schedule_data['fixedSchedules'])}"),
-                "name": schedule.get("name", "일정"),
-                "type": "FIXED",
-                "duration": schedule.get("duration", 60),
-                "priority": schedule.get("priority", len(schedule_data['fixedSchedules']) + 1),
-                "location": schedule.get("location", ""),
-                "latitude": schedule.get("latitude", 37.5665),
-                "longitude": schedule.get("longitude", 126.9780),
-                "startTime": schedule.get("startTime", ""),
-                "endTime": schedule.get("endTime", "")
-            }
-            
-            schedule_data["fixedSchedules"].append(fixed_schedule)
-        
-        force_log(f"✅ 변환 완료: 고정 일정 {len(schedule_data['fixedSchedules'])}개")
-        
-        # Step 3: 🔥 역/공항 등 특화된 위치 보강 시스템 호출
-        force_log("Step 3: 역/공항 특화 위치 보강 + 기존 시스템 호출")
+        # Step 3: 🔥 핵심 최적화 - LangChain 체인 재사용 (기존 함수 그대로 사용)
+        step_start = time.time()
+        force_log("Step 3: LangChain 체인 호출 (기존 create_schedule_chain 함수 사용)")
         
         try:
-            # 🔥 Step 3-1: 역/공항 등 구체적 장소에 대한 특화 검색
-            for i, schedule in enumerate(schedule_data["fixedSchedules"]):
-                name = schedule.get("name", "").lower()
-                current_location = schedule.get("location", "")
-                
-                # 역, 공항, 터미널 등 구체적 장소 감지
-                if any(keyword in name for keyword in ['역', 'station', '공항', 'airport', '터미널', 'terminal', '대학교', 'university']):
-                    force_log(f"  🚉 구체적 장소 감지: '{schedule.get('name')}'")
-                    
-                    # 현재 위치가 부정확하거나 없으면 재검색
-                    if not current_location or len(current_location) < 10:
-                        force_log(f"    🔍 '{schedule.get('name')}' 정확한 위치 재검색")
-                        
-                        # 🔥 Kakao 우선 검색 (기존 시스템 활용)
-                        reference_schedules = []
-                        if i > 0:  # 이전 일정이 있으면 참조로 활용
-                            reference_schedules = [schedule_data["fixedSchedules"][i-1]]
-                        
-                        enhanced_schedule = await enhance_single_schedule_triple(
-                            schedule, reference_schedules
-                        )
-                        
-                        # 결과 적용
-                        if enhanced_schedule.get("location") and enhanced_schedule["location"] != current_location:
-                            schedule["location"] = enhanced_schedule["location"]
-                            schedule["latitude"] = enhanced_schedule.get("latitude", schedule.get("latitude"))
-                            schedule["longitude"] = enhanced_schedule.get("longitude", schedule.get("longitude"))
-                            
-                            force_log(f"    ✅ 위치 업데이트: {enhanced_schedule['location']}")
-                        else:
-                            force_log(f"    ⚠️ 재검색 결과 없음")
+            # 🔥 LangChain 체인 생성 및 호출 로그
+            force_log("🔗 LangChain 체인 생성 시작...")
+            chain_create_start = time.time()
             
-            # 🔥 Step 3-2: 기존 전체 위치 보강 시스템 호출
-            enhanced_data = await asyncio.wait_for(
-                enhance_locations_with_triple_api(schedule_data),
-                timeout=30
+            # 🔥 기존 함수 그대로 사용 (데이터 무결성 검증됨)
+            chain = create_schedule_chain(synthetic_voice_input)
+            
+            chain_create_time = time.time() - chain_create_start
+            force_log(f"✅ LangChain 체인 생성 완료 ({chain_create_time:.3f}초)")
+            
+            # 🔥 LangChain 체인 호출 로그
+            force_log("🚀 LangChain 체인 호출 시작...")
+            force_log(f"📝 입력 데이터: {synthetic_voice_input}")
+            
+            chain_invoke_start = time.time()
+            
+            # 비동기 실행 (타임아웃 단축)
+            llm_result = await asyncio.wait_for(
+                run_in_executor(lambda: chain.invoke({"input": synthetic_voice_input})),
+                timeout=15  # 🔥 30초 → 15초로 단축
             )
-            force_log("✅ 전체 위치 정보 보강 완료")
+            
+            chain_invoke_time = time.time() - chain_invoke_start
+            force_log(f"📩 LangChain 체인 응답 수신 성공 ({chain_invoke_time:.2f}초)")
+            force_log(f"📊 응답 타입: {type(llm_result)}")
+            
+            # 응답 검증
+            if isinstance(llm_result, dict):
+                fixed_count = len(llm_result.get('fixedSchedules', []))
+                flexible_count = len(llm_result.get('flexibleSchedules', []))
+                force_log(f"✅ LangChain 파싱 성공: 고정={fixed_count}개, 유연={flexible_count}개")
+                base_schedule_data = llm_result
+            else:
+                force_log(f"⚠️ 예상과 다른 응답 타입, JSON 파싱 시도: {type(llm_result)}")
+                if isinstance(llm_result, str):
+                    base_schedule_data = safe_parse_json(llm_result)
+                else:
+                    base_schedule_data = llm_result
+                    
+        except asyncio.TimeoutError:
+            force_log("❌ LangChain 체인 호출 타임아웃 (15초)")
+            raise Exception("LangChain 체인 호출 타임아웃")
             
         except Exception as e:
-            force_log(f"⚠️ 위치 정보 보강 실패: {e}")
-            enhanced_data = schedule_data
+            force_log(f"❌ LangChain 체인 호출 실패: {e}")
+            
+            # 🔥 빠른 폴백: 원본 일정 구조 재사용
+            force_log("🔄 빠른 폴백: 원본 일정 구조 재사용")
+            
+            base_schedule_data = {
+                "fixedSchedules": [],
+                "flexibleSchedules": []
+            }
+            
+            # 원본 일정을 기반으로 빠르게 생성
+            for i, schedule in enumerate(request.schedules):
+                fixed_schedule = {
+                    "id": schedule.get("id", f"fallback_{int(time.time() * 1000)}_{i}"),
+                    "name": schedule.get("name", "일정"),
+                    "type": "FIXED", 
+                    "duration": schedule.get("duration", 60),
+                    "priority": schedule.get("priority", i + 1),
+                    "location": schedule.get("location", ""),
+                    "latitude": schedule.get("latitude", 37.5665),
+                    "longitude": schedule.get("longitude", 126.9780),
+                    "startTime": schedule.get("startTime", ""),
+                    "endTime": schedule.get("endTime", "")
+                }
+                base_schedule_data["fixedSchedules"].append(fixed_schedule)
+            
+            force_log(f"✅ 폴백 일정 생성 완료: {len(base_schedule_data['fixedSchedules'])}개")
         
-        # Step 4: 강화된 음성 입력 생성
-        force_log("Step 4: 강화된 음성 입력 생성")
+        step_time = time.time() - step_start
+        force_log(f"Step 3 완료 ({step_time:.2f}초)")
         
-        enhanced_voice_input = create_enhanced_voice_input(request.schedules)
+        # Step 4: 🔥 데이터 무결성 보장 - 원본 일정과 LangChain 결과 병합
+        step_start = time.time()
+        force_log("Step 4: 데이터 무결성 보장 - 원본과 LangChain 결과 병합")
         
-        # Step 5: 🔥 강제 다중 옵션 생성 시스템
-        force_log("Step 5: 강제 다중 옵션 생성 시스템")
+        # 🔥 원본 일정의 핵심 정보 보존
+        enhanced_data = copy.deepcopy(base_schedule_data)
         
-        # 식사 관련 일정 인덱스 찾기
-        meal_schedule_indices = []
+        # 원본 일정과 매칭하여 핵심 정보 복원
+        for i, llm_schedule in enumerate(enhanced_data.get("fixedSchedules", [])):
+            if i < len(request.schedules):
+                original = request.schedules[i]
+                original_name = original.get("name", "").lower()
+                
+                # 🔥 식사 관련이 아닌 일정은 원본 정보 완전 복원
+                if not any(meal_word in original_name for meal_word in ["브런치", "카페", "타임", "식사", "맛집", "먹"]):
+                    # 위치 관련 일정 (역, 공항, 지역명 등)은 원본 그대로
+                    llm_schedule["name"] = original.get("name", llm_schedule.get("name"))
+                    if original.get("location"):
+                        llm_schedule["location"] = original["location"]
+                        llm_schedule["latitude"] = original.get("latitude", llm_schedule.get("latitude"))
+                        llm_schedule["longitude"] = original.get("longitude", llm_schedule.get("longitude"))
+                    
+                    force_log(f"  📍 원본 정보 복원: '{original.get('name')}' @ '{original.get('location', 'N/A')}'")
+                
+                # 🔥 모든 일정의 시간 정보는 원본 보존
+                for time_field in ["startTime", "endTime", "duration", "priority", "type"]:
+                    if time_field in original:
+                        llm_schedule[time_field] = original[time_field]
+        
+        step_time = time.time() - step_start
+        force_log(f"✅ 데이터 무결성 보장 완료 ({step_time:.3f}초)")
+        
+        # Step 5: 🔥 최적화 - 선택적 위치 보강 (필요한 것만)
+        step_start = time.time()
+        force_log("Step 5: 선택적 위치 보강 (역/공항만)")
+        
+        location_enhanced_count = 0
+        
+        # 🔥 역/공항/터미널만 위치 보강 (시간 단축)
         for i, schedule in enumerate(enhanced_data.get("fixedSchedules", [])):
             name = schedule.get("name", "").lower()
-            if any(word in name for word in ["식사", "브런치", "점심", "저녁", "카페", "커피", "타임"]):
-                meal_schedule_indices.append(i)
-                force_log(f"  🍽️ 식사 일정 발견: 인덱스 {i}, 이름 '{schedule.get('name')}'")
+            current_location = schedule.get("location", "")
+            
+            # 구체적 장소만 재검색
+            if any(keyword in name for keyword in ['역', 'station', '공항', 'airport', '터미널', 'terminal']) and (not current_location or len(current_location) < 10):
+                force_log(f"  🚉 핵심 장소 재검색: '{schedule.get('name')}'")
+                
+                try:
+                    # 🔥 빠른 단일 API 호출 (Kakao만)
+                    reference_schedules = [enhanced_data["fixedSchedules"][i-1]] if i > 0 else []
+                    
+                    enhanced_schedule = await asyncio.wait_for(
+                        enhance_single_schedule_triple(schedule, reference_schedules),
+                        timeout=5  # 🔥 개별 검색 타임아웃 단축
+                    )
+                    
+                    if enhanced_schedule.get("location") and enhanced_schedule["location"] != current_location:
+                        schedule.update(enhanced_schedule)
+                        location_enhanced_count += 1
+                        force_log(f"    ✅ 위치 업데이트: {enhanced_schedule['location'][:50]}...")
+                    
+                except Exception as e:
+                    force_log(f"    ⚠️ 재검색 실패: {e}")
+        
+        step_time = time.time() - step_start
+        force_log(f"✅ 선택적 위치 보강 완료: {location_enhanced_count}개 업데이트 ({step_time:.2f}초)")
+        
+# Step 6: 🔥 핵심 최적화 - 병렬 다중 옵션 생성 (중복 방지 강화) - 수정된 버전
+        step_start = time.time()
+        force_log("Step 6: 병렬 다중 옵션 생성 (중복 방지 강화)")
+        
+        # 🔥 수정된 식사 관련 일정 인덱스 찾기 (모든 식사 일정 감지)
+        meal_schedule_indices = []
+        meal_keywords = [
+            "식사", "브런치", "점심", "저녁", "카페", "커피", "타임",
+            "맛집", "식당", "먹기", "lunch", "dinner", "brunch", "cafe"
+        ]
+        
+        for i, schedule in enumerate(enhanced_data.get("fixedSchedules", [])):
+            name = schedule.get("name", "").lower()
+            
+            # 🔥 각 키워드별로 체크
+            for keyword in meal_keywords:
+                if keyword in name:
+                    if i not in meal_schedule_indices:  # 중복 방지
+                        meal_schedule_indices.append(i)
+                        force_log(f"  🍽️ 식사 일정 감지: 인덱스 {i}, 이름 '{schedule.get('name')}', 키워드 '{keyword}'")
+                    break  # 하나 찾으면 다음 일정으로
+        
+        force_log(f"🔍 최종 감지된 식사 일정: {len(meal_schedule_indices)}개 - 인덱스 {meal_schedule_indices}")
         
         if not meal_schedule_indices:
             force_log("  ⚠️ 식사 일정이 없어서 단일 옵션 반환")
             final_result = {"options": [{"optionId": 1, "fixedSchedules": enhanced_data["fixedSchedules"], "flexibleSchedules": []}]}
         else:
-            # 🔥 강제로 5개 다른 옵션 생성
-            force_log(f"  🔥 {len(meal_schedule_indices)}개 식사 일정에 대해 강제 다중 옵션 생성")
+            # 🔥 병렬 옵션 생성 (중복 방지 강화)
+            force_log(f"  🔥 {len(meal_schedule_indices)}개 식사 일정에 대해 병렬 옵션 생성")
             
-            options = []
-            used_restaurants = set()
-            
-            # 참조 지역 추출
+            # 참조 지역 빠르게 추출
             reference_location = "서울"
-            for schedule in enhanced_data.get("fixedSchedules", []):
+            for schedule in enhanced_data.get("fixedSchedules", [])[:3]:  # 🔥 처음 3개만 확인
                 location = schedule.get("location", "")
-                if "서울" in location:
-                    reference_location = "서울"
-                    break
-                elif "부산" in location:
+                if "부산" in location:
                     reference_location = "부산"
                     break
                 elif "대구" in location:
@@ -4722,145 +4477,213 @@ async def expand_schedule_options(request: ScheduleExpansionRequest):
             
             force_log(f"  📍 참조 지역: {reference_location}")
             
-            # 5개 옵션별 검색 전략
+            # 🔥 병렬 검색을 위한 전략 사전 정의
             search_strategies = [
-                {"keywords": ["맛집", "인기"], "categories": ["한식", "양식"]},      # 옵션 1: 인기 맛집
-                {"keywords": ["한식", "전통"], "categories": ["한식", "갈비"]},     # 옵션 2: 한식 전통
-                {"keywords": ["분식", "김밥"], "categories": ["분식", "김밥"]},     # 옵션 3: 분식
-                {"keywords": ["카페", "커피"], "categories": ["카페", "디저트"]},   # 옵션 4: 카페
-                {"keywords": ["치킨", "피자"], "categories": ["치킨", "피자"]}      # 옵션 5: 패스트푸드
+                {"keywords": ["맛집"], "name": "인기맛집"},
+                {"keywords": ["한식"], "name": "한식전문"},  
+                {"keywords": ["분식"], "name": "분식전문"},
+                {"keywords": ["카페"], "name": "카페전문"},
+                {"keywords": ["치킨"], "name": "패스트푸드"}
             ]
             
-            for option_num in range(5):
-                force_log(f"  🔄 옵션 {option_num + 1} 생성 중...")
-                
-                option_data = copy.deepcopy(enhanced_data)
-                option_modified = False
-                strategy = search_strategies[option_num]
-                
-                # 각 식사 일정 처리
-                for meal_idx in meal_schedule_indices:
-                    if meal_idx < len(option_data["fixedSchedules"]):
-                        schedule = option_data["fixedSchedules"][meal_idx]
-                        original_name = schedule.get("name", "")
-                        
-                        force_log(f"    🍽️ 일정 수정: '{original_name}' (인덱스: {meal_idx})")
-                        
-                        # 🔥 직접 Kakao API 검색
-                        search_query = f"{reference_location} {strategy['keywords'][0]}"
-                        
-                        try:
-                            new_restaurant = await search_restaurants_directly(search_query, used_restaurants)
+            # 🔥 전역 중복 방지 시스템
+            used_restaurants_global = set()
+            
+            # 🔥 비동기 병렬 처리 (중복 방지 강화)
+            async def create_single_option_no_duplicate(option_num, strategy):
+                """중복 방지가 강화된 단일 옵션 비동기 생성"""
+                try:
+                    option_data = copy.deepcopy(enhanced_data)
+                    option_modified = False
+                    
+                    for meal_idx in meal_schedule_indices:
+                        if meal_idx < len(option_data["fixedSchedules"]):
+                            schedule = option_data["fixedSchedules"][meal_idx]
+                            original_name = schedule.get("name", "")
+                            
+                            # 🔥 다양한 검색 쿼리 시도 (중복 방지)
+                            search_queries = [
+                                f"{reference_location} {strategy['keywords'][0]}",
+                                f"{reference_location} {strategy['keywords'][0]} 추천",
+                                f"{reference_location} {strategy['keywords'][0]} 인기",
+                                f"{reference_location} {strategy['keywords'][0]} 맛집"
+                            ]
+                            
+                            new_restaurant = None
+                            for query in search_queries:
+                                try:
+                                    candidate = await asyncio.wait_for(
+                                        search_restaurants_directly_no_duplicate(query, used_restaurants_global),
+                                        timeout=3  # 🔥 개별 검색 3초 제한
+                                    )
+                                    
+                                    if candidate and candidate["name"] not in used_restaurants_global:
+                                        # 🔥 전역 사용 목록에 즉시 추가 (중복 방지)
+                                        used_restaurants_global.add(candidate["name"])
+                                        new_restaurant = candidate
+                                        force_log(f"    ✅ 옵션 {option_num + 1} 식당 발견: {original_name} → {candidate['name']}")
+                                        break
+                                except Exception:
+                                    continue
                             
                             if new_restaurant:
-                                # 일정 업데이트
                                 schedule["name"] = new_restaurant["name"]
                                 schedule["location"] = new_restaurant["address"]
-                                schedule["latitude"] = new_restaurant["latitude"] 
+                                schedule["latitude"] = new_restaurant["latitude"]
                                 schedule["longitude"] = new_restaurant["longitude"]
-                                
-                                used_restaurants.add(new_restaurant["name"])
                                 option_modified = True
-                                
-                                force_log(f"      ✅ 새로운 식당: {new_restaurant['name']}")
-                                force_log(f"      📍 주소: {new_restaurant['address']}")
                             else:
-                                force_log(f"      ⚠️ 새로운 식당 찾기 실패")
-                                
-                        except Exception as e:
-                            force_log(f"      ❌ 검색 오류: {e}")
+                                # 새로운 식당을 찾지 못한 경우 원본 유지
+                                force_log(f"    ⚠️ 옵션 {option_num + 1} 새로운 식당 없음: {original_name} 유지")
+                    
+                    # 고유 ID 설정
+                    current_time = int(time.time() * 1000)
+                    for j, schedule in enumerate(option_data["fixedSchedules"]):
+                        schedule["id"] = f"{current_time}_{option_num + 1}_{j + 1}"
+                    
+                    return {
+                        "optionId": option_num + 1,
+                        "fixedSchedules": option_data["fixedSchedules"],
+                        "flexibleSchedules": option_data.get("flexibleSchedules", []),
+                        "modified": option_modified,
+                        "strategy": strategy["name"]
+                    }
+                    
+                except Exception as e:
+                    force_log(f"    ❌ 옵션 {option_num + 1} 생성 실패: {e}")
+                    # 실패시 원본 반환
+                    option_data = copy.deepcopy(enhanced_data)
+                    current_time = int(time.time() * 1000)
+                    for j, schedule in enumerate(option_data["fixedSchedules"]):
+                        schedule["id"] = f"{current_time}_{option_num + 1}_{j + 1}"
+                    
+                    return {
+                        "optionId": option_num + 1,
+                        "fixedSchedules": option_data["fixedSchedules"],
+                        "flexibleSchedules": option_data.get("flexibleSchedules", []),
+                        "modified": False,
+                        "strategy": "원본유지"
+                    }
+            
+            # 🔥 병렬 실행
+            force_log("  🚀 5개 옵션 병렬 생성 시작...")
+            
+            parallel_start = time.time()
+            tasks = [create_single_option_no_duplicate(i, strategy) for i, strategy in enumerate(search_strategies)]
+            option_results = await asyncio.gather(*tasks, return_exceptions=True)
+            parallel_time = time.time() - parallel_start
+            
+            force_log(f"  ✅ 병렬 생성 완료 ({parallel_time:.2f}초)")
+            
+            # 결과 정리
+            options = []
+            for i, result in enumerate(option_results):
+                if isinstance(result, Exception):
+                    force_log(f"    ❌ 옵션 {i+1} 예외: {result}")
+                    continue
                 
-                # 고유 ID 부여
-                current_time = int(time.time() * 1000)
-                for j, schedule in enumerate(option_data["fixedSchedules"]):
-                    schedule["id"] = f"{current_time}_{option_num + 1}_{j + 1}"
-                
-                # 옵션 추가
                 options.append({
-                    "optionId": option_num + 1,
-                    "fixedSchedules": option_data["fixedSchedules"],
-                    "flexibleSchedules": option_data.get("flexibleSchedules", [])
+                    "optionId": result["optionId"],
+                    "fixedSchedules": result["fixedSchedules"],
+                    "flexibleSchedules": result["flexibleSchedules"]
                 })
                 
-                force_log(f"    ✅ 옵션 {option_num + 1} 완성 (수정됨: {option_modified})")
+                force_log(f"    ✅ 옵션 {i+1} 완성: {result['strategy']} (수정됨: {result['modified']})")
             
             final_result = {"options": options}
-            force_log(f"🎉 강제 다중 옵션 생성 완료: {len(options)}개")
+            force_log(f"🎉 병렬 다중 옵션 생성 완료: {len(options)}개")
         
-        # Step 6: 결과가 부족하면 추가 검색
-        force_log("Step 6: 결과 품질 검증 및 보강")
+        step_time = time.time() - step_start
+        force_log(f"Step 6 완료 ({step_time:.2f}초)")
         
-        option_count = len(final_result.get('options', []))
-        force_log(f"초기 옵션 수: {option_count}개")
-        
-        # 옵션이 부족하거나 모두 동일하면 추가 검색
-        if option_count < 5:
-            force_log(f"🔄 옵션 부족 ({option_count}개), 추가 생성 시도")
-            
-            # 브랜드 시스템도 시도
-            try:
-                optimizer = DynamicRouteOptimizer(KAKAO_REST_API_KEY)
-                additional_result = await optimizer.create_multiple_options(enhanced_data, enhanced_voice_input)
-                
-                if len(additional_result.get("options", [])) > option_count:
-                    force_log("✅ 동적 시스템으로 더 많은 옵션 생성됨")
-                    final_result = additional_result
-                
-            except Exception as e:
-                force_log(f"⚠️ 추가 검색 실패: {e}")
-        
-        # Step 7: 각 옵션의 품질 검증 및 로깅
-        force_log("Step 7: 최종 결과 품질 검증")
+# Step 7: 🔥 개선된 품질 검증 및 다양성 분석 - 수정된 버전
+        step_start = time.time()
+        force_log("Step 7: 개선된 품질 검증 및 다양성 분석")
         
         final_option_count = len(final_result.get('options', []))
         force_log(f"최종 옵션 수: {final_option_count}개")
         
-        # 각 옵션의 다양성 체크
-        unique_locations = set()
+        # 🔥 수정된 정확한 다양성 분석
         unique_names = set()
+        unique_locations = set()
+        diversity_details = []
         
         for i, option in enumerate(final_result.get('options', [])):
-            force_log(f"옵션 {i+1} 품질 검증:")
-            
-            for j, schedule in enumerate(option.get('fixedSchedules', [])):
-                name = schedule.get('name', 'N/A')
-                location = schedule.get('location', 'N/A')
+            option_restaurants = []
+            for schedule in option.get('fixedSchedules', []):
+                name = schedule.get('name', '')
+                location = schedule.get('location', '')
                 
-                force_log(f"  일정 {j+1}: '{name}' @ '{location[:50]}...'")
+                # 🔥 더 정확한 식사 관련 키워드 매칭 (실제 식당명 포함)
+                meal_keywords = [
+                    "브런치", "카페", "타임", "식사", "맛집", "식당", "커피",
+                    "엄용백", "우래옥", "명동교자", "어니언", "한남동", "통닭",
+                    "돼지국밥", "본점", "성수", "종각점", "창경궁", "아차산로",
+                    "대사관로", "인사동", "명동10길"  # 🔥 실제 식당명과 주소 키워드 포함
+                ]
                 
-                # 식사 관련 일정의 다양성 체크
-                if any(word in name.lower() for word in ["식사", "브런치", "점심", "저녁", "카페"]):
-                    unique_locations.add(location)
+                # 🔥 식당명에 실제 식당 키워드가 포함된 경우 OR 음식 관련 영어 키워드
+                if (any(keyword in name for keyword in meal_keywords) or 
+                    any(keyword in name.lower() for keyword in ["restaurant", "cafe", "chicken", "pork", "onion"]) or
+                    # 🔥 원본과 다른 이름이면서 위치가 있는 경우 (식당으로 변경된 경우)
+                    (name not in ["서울역", "명동", "서울", "부산역", "장전역"] and location and len(location) > 10)):
+                    
                     unique_names.add(name)
+                    if location:
+                        unique_locations.add(location)
+                    option_restaurants.append(name)
         
-        force_log(f"📊 다양성 분석: 고유 위치 {len(unique_locations)}개, 고유 이름 {len(unique_names)}개")
+            # 🔥 실제 변경사항 기록
+            if option_restaurants:
+                diversity_details.append(f"옵션{i+1}: {', '.join(option_restaurants)}")
+            else:
+                diversity_details.append(f"옵션{i+1}: 변경없음")
         
-        # Step 8: 원본 구조 보존
-        force_log("Step 8: 원본 구조 보존")
+        step_time = time.time() - step_start
+        force_log(f"📊 수정된 다양성 분석: 고유 식당 이름 {len(unique_names)}개, 고유 위치 {len(unique_locations)}개 ({step_time:.3f}초)")
         
-        for i, option in enumerate(final_result.get("options", [])):
+        # 🔥 실제 발견된 식당 목록 로깅
+        if unique_names:
+            force_log(f"   실제 식당 목록: {list(unique_names)}")
+        
+        # 🔥 각 옵션별 상세 정보 로깅
+        for detail in diversity_details:
+            force_log(f"   {detail}")
+        
+        # Step 8: 🔥 원본 구조 보존 (강화된 버전)
+        step_start = time.time()
+        force_log("Step 8: 원본 구조 보존 (강화된 버전)")
+        
+        for option in final_result.get("options", []):
             for j, schedule in enumerate(option.get("fixedSchedules", [])):
                 if j < len(request.schedules):
                     original = request.schedules[j]
                     
-                    # 원본의 시간 정보 보존
-                    for time_field in ["startTime", "endTime", "duration"]:
-                        if time_field in original:
-                            schedule[time_field] = original[time_field]
-                    
-                    # 원본의 우선순위 보존
-                    if "priority" in original:
-                        schedule["priority"] = original["priority"]
+                    # 🔥 원본의 핵심 필드들 완전 복사
+                    preserve_fields = ["startTime", "endTime", "duration", "priority", "type"]
+                    for field in preserve_fields:
+                        if field in original:
+                            schedule[field] = original[field]
         
-        force_log("=== 강화된 다중 옵션 시스템 완료 ===")
+        step_time = time.time() - step_start
+        force_log(f"Step 8 완료 ({step_time:.3f}초)")
+        
+        # 최종 시간 측정
+        total_time = time.time() - total_start_time
+        force_log(f"=== 최적화된 다중 옵션 시스템 완료: 총 {total_time:.2f}초 ===")
+        
         return UnicodeJSONResponse(content=final_result, status_code=200)
         
     except Exception as e:
-        force_log(f"❌ 전체 프로세스 실패: {e}")
+        total_time = time.time() - total_start_time
+        force_log(f"❌ 전체 프로세스 실패 ({total_time:.2f}초): {e}")
         import traceback
         force_log(f"상세 오류: {traceback.format_exc()}")
         
-        # 최종 폴백
+        # 🔥 빠른 폴백 (최소한의 처리)
+        fallback_start = time.time()
+        force_log("🔄 빠른 폴백 옵션 생성")
+        
         fallback_options = []
         current_time = int(time.time() * 1000)
         
@@ -4876,7 +4699,148 @@ async def expand_schedule_options(request: ScheduleExpansionRequest):
                 "flexibleSchedules": []
             })
         
+        fallback_time = time.time() - fallback_start
+        total_time = time.time() - total_start_time
+        force_log(f"✅ 폴백 완료 ({fallback_time:.3f}초) - 전체 {total_time:.2f}초")
+        
         return UnicodeJSONResponse(content={"options": fallback_options}, status_code=200)
+# 🔥 중복 방지가 강화된 search_restaurants_directly 함수
+async def search_restaurants_directly_no_duplicate(search_query: str, used_restaurants: Set[str]) -> Optional[Dict[str, Any]]:
+    """중복 방지가 강화된 직접 Kakao API 식당 검색 - 로깅 추가"""
+    
+    if not KAKAO_REST_API_KEY:
+        return None
+    
+    try:
+        url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+        headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
+        
+        params = {
+            "query": search_query,
+            "size": 15,  # 🔥 더 많은 결과 확보
+            "sort": "accuracy"
+        }
+        
+        print(f"🔍 중복방지 검색: '{search_query}' (제외: {len(used_restaurants)}개)")
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, params=params, timeout=3) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    if data.get("documents"):
+                        print(f"   📋 검색 결과: {len(data['documents'])}개 후보")
+                        
+                        for i, place in enumerate(data["documents"]):
+                            place_name = place.get("place_name", "")
+                            address = place.get("road_address_name") or place.get("address_name", "")
+                            category = place.get("category_name", "")
+                            
+                            print(f"     후보 {i+1}: {place_name} ({category})")
+                            
+                            # 🔥 엄격한 중복 체크
+                            if place_name in used_restaurants:
+                                print(f"       ❌ 이미 사용됨: {place_name}")
+                                continue
+                            
+                            # 🔥 부정 키워드 체크
+                            negative_keywords = ["학원", "병원", "약국", "은행", "부동산", "컨설팅", "사무실", "법무", "세무"]
+                            if any(neg in place_name.lower() for neg in negative_keywords):
+                                print(f"       ❌ 부정 키워드: {place_name}")
+                                continue
+                            
+                            # 🔥 음식점 카테고리 확인 (더 포괄적)
+                            category_lower = category.lower()
+                            food_categories = [
+                                "음식점", "식당", "카페", "레스토랑", "한식", "중식", "일식", "양식", "분식",
+                                "치킨", "피자", "햄버거", "커피", "디저트", "베이커리", "술집", "bar", "pub"
+                            ]
+                            
+                            has_food_category = any(food_cat in category_lower for food_cat in food_categories)
+                            
+                            if not has_food_category:
+                                print(f"       ❌ 음식점 아님: {category}")
+                                continue
+                            
+                            # 🔥 성공한 경우
+                            result = {
+                                "name": place_name,
+                                "address": clean_address(address),
+                                "latitude": float(place.get("y", 0)),
+                                "longitude": float(place.get("x", 0))
+                            }
+                            
+                            print(f"       ✅ 선택됨: {place_name}")
+                            print(f"         주소: {result['address']}")
+                            print(f"         카테고리: {category}")
+                            
+                            return result
+                        
+                        print(f"   ⚠️ 모든 후보가 필터링됨")
+                    else:
+                        print(f"   ⚠️ 검색 결과 없음")
+                else:
+                    print(f"   ❌ API 오류: {response.status}")
+        
+        return None
+        
+    except Exception as e:
+        print(f"   ❌ 검색 예외: {e}")
+        return None
+# 🔥 중복 방지가 강화된 search_restaurants_directly 함수
+async def search_restaurants_directly_no_duplicate(search_query: str, used_restaurants: Set[str]) -> Optional[Dict[str, Any]]:
+    """중복 방지가 강화된 직접 Kakao API 식당 검색"""
+    
+    if not KAKAO_REST_API_KEY:
+        return None
+    
+    try:
+        url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+        headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
+        
+        params = {
+            "query": search_query,
+            "size": 15,  # 🔥 더 많은 결과 확보
+            "sort": "accuracy"
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, params=params, timeout=3) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    if data.get("documents"):
+                        for place in data["documents"]:
+                            place_name = place.get("place_name", "")
+                            address = place.get("road_address_name") or place.get("address_name", "")
+                            
+                            # 🔥 엄격한 중복 체크
+                            if place_name in used_restaurants:
+                                continue
+                            
+                            # 🔥 부정 키워드 체크
+                            negative_keywords = ["학원", "병원", "약국", "은행", "부동산", "컨설팅"]
+                            if any(neg in place_name.lower() for neg in negative_keywords):
+                                continue
+                            
+                            # 🔥 음식점 카테고리 확인
+                            category = place.get("category_name", "").lower()
+                            food_categories = ["음식점", "식당", "카페", "레스토랑", "한식", "중식", "일식", "양식", "분식"]
+                            if not any(food_cat in category for food_cat in food_categories):
+                                continue
+                            
+                            return {
+                                "name": place_name,
+                                "address": clean_address(address),
+                                "latitude": float(place.get("y", 0)),
+                                "longitude": float(place.get("x", 0))
+                            }
+        
+        return None
+        
+    except Exception:
+        return None
+
 # 서버 시작
 if __name__ == "__main__":
     import uvicorn
