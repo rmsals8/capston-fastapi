@@ -1255,7 +1255,7 @@ class TripleLocationSearchService:
 
         try:
             response = openai_client.chat.completions.create(
-                model="gpt-4-turbo",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system", 
@@ -1984,17 +1984,18 @@ class TripleLocationSearchService:
                     # A) 동 단위 검색 (시/도 + 구/시/군 + 동)
                     if reference_dong:
                         search_strategies.extend([
-                            f"{reference_region_short} {reference_district} {reference_dong} 맛집",
-                            f"{reference_region_short} {reference_district} {reference_dong} 식당",
-                            f"{reference_district} {reference_dong} 맛집"
+                        f"{reference_district} 맛집",                            
+                        f"{reference_region} {reference_district} 맛집",        
+                        f"{reference_region_short} {reference_district} 맛집"   
                         ])
                     
                     # B) 구/시/군 + 카테고리 검색 (시/도 포함)
                     search_strategies.extend([
-                        f"{reference_region_short} {reference_district} 맛집",
-                        f"{reference_region_short} {reference_district} 식당",
-                        f"{reference_region_short} {reference_district} 카페",
-                        f"{reference_region} {reference_district} 맛집"  # 전체 시/도명도 시도
+                        f"{reference_district} 맛집",                      # 양산시 맛집
+                        f"{reference_district} 식당",                      # 양산시 식당
+                        f"{reference_district} 카페",                      # 양산시 카페
+                        f"{reference_region} {reference_district} 맛집",   # 경상남도 양산시 맛집
+                        f"{reference_region_short} {reference_district} 맛집"  # 경상남 양산시 맛집 (마지막)
                     ])
                     
                     logger.info(f"🎯 참조 지역 '{reference_region_short} {reference_district}' 기준 검색")
@@ -2597,7 +2598,7 @@ JSON 형식으로 반환:
     logger.info("🤖 OpenAI LLM 초기화 중...")
     llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
-        model_name="gpt-3.5-turbo",
+        model_name="gpt-4o",
         temperature=0,
         max_tokens=1500
     )
@@ -3676,11 +3677,11 @@ def get_diversified_search_strategy(option_num: int, region: str, district: str)
     
     # 🔥 옵션별 카테고리 다양화 (지역 정보는 동적)
     category_strategies = {
-        0: ["맛집", "식당", "음식점"],                    # 옵션 1: 일반 맛집
-        1: ["한식", "갈비", "삼겹살", "국밥"],            # 옵션 2: 한식 전문
-        2: ["분식", "김밥", "떡볶이", "순대"],            # 옵션 3: 분식/간단식사
-        3: ["치킨", "햄버거", "피자", "패스트푸드"],        # 옵션 4: 치킨/패스트푸드
-        4: ["카페", "디저트", "베이커리", "커피"]          # 옵션 5: 카페/디저트
+        0: [f"{district} 맛집", f"{district} 식당"],                    # 양산시 맛집, 양산시 식당
+        1: [f"{district} 한식", f"{district} 갈비"],                    # 양산시 한식, 양산시 갈비  
+        2: [f"{district} 분식", f"{district} 김밥"],                    # 양산시 분식, 양산시 김밥
+        3: [f"{district} 치킨", f"{district} 햄버거"],                  # 양산시 치킨, 양산시 햄버거
+        4: [f"{district} 카페", f"{district} 디저트"]                   # 양산시 카페, 양산시 디저트
     }
     
     categories = category_strategies.get(option_num, ["맛집", "식당"])
@@ -3797,12 +3798,12 @@ async def create_traditional_options(enhanced_data: Dict, voice_input: str, excl
                                     logger.info(f"     ❌ 중복 제외: {candidate_name}")
                                     continue
                                 
-                                # 새로운 식당 발견
+                                # 🔥 새로운 식당 발견하면 즉시 중단
                                 restaurant_result = kakao_result
                                 global_used_restaurants.add(candidate_name)
                                 global_used_locations.add(candidate_location)
                                 logger.info(f"     ✅ 새로운 식당: {candidate_name}")
-                                break
+                                break  # 🔥 성공하면 즉시 중단!
                                 
                         except Exception as e:
                             logger.error(f"     ❌ 검색 오류: {e}")
