@@ -4213,11 +4213,11 @@ def create_enhanced_voice_input(schedules: List[Dict[str, Any]]) -> str:
 
 @app.post("/expand-schedule-options")
 async def expand_schedule_options(request: ScheduleExpansionRequest):
-    """🔥 모든 종류 일정을 커버하는 범용 다중 옵션 생성 시스템"""
+    """🔥 /extract-schedule의 검증된 위치 검색 메서드 활용"""
     import time
     import datetime as dt
     
-    # 강제 로깅 함수 (시간 측정 포함)
+    # 강제 로깅 함수
     def force_log(message):
         timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         output = f"🔥 {timestamp} - {message}"
@@ -4225,9 +4225,8 @@ async def expand_schedule_options(request: ScheduleExpansionRequest):
         logger.info(message)
         return output
     
-    # 전체 시작 시간
     total_start_time = time.time()
-    force_log("=== 범용 다중 옵션 시스템 시작 ===")
+    force_log("=== 검증된 위치 검색 활용 다중 옵션 시스템 시작 ===")
     force_log(f"입력 일정 수: {len(request.schedules)}개")
     
     # 입력 일정 상세 로깅
@@ -4235,9 +4234,9 @@ async def expand_schedule_options(request: ScheduleExpansionRequest):
         force_log(f"  일정 {i+1}: '{schedule.get('name', 'N/A')}' @ '{schedule.get('location', 'N/A')}'")
     
     try:
-        # Step 1: 🔥 확장 가능한 일정 감지 (모든 종류 포함)
+        # Step 1: 확장 가능한 일정 감지
         step_start = time.time()
-        force_log("Step 1: 확장 가능한 일정 감지 (모든 종류)")
+        force_log("Step 1: 확장 가능한 일정 감지")
         
         expandable_schedules = identify_expandable_schedules(request.schedules)
         
@@ -4256,115 +4255,119 @@ async def expand_schedule_options(request: ScheduleExpansionRequest):
         for exp in expandable_schedules:
             force_log(f"     - 인덱스 {exp['index']}: '{exp['name']}' ({exp['category']})")
         
-        # Step 2: 🔥 범용 음성 입력 생성 (LangChain용)
+        # Step 2: 🔥 /extract-schedule의 enhance_locations_with_triple_api 활용
         step_start = time.time()
-        force_log("Step 2: 범용 음성 입력 생성")
+        force_log("Step 2: /extract-schedule 방식으로 위치 정보 보강")
         
-        synthetic_voice_input = create_universal_voice_input(request.schedules, expandable_schedules)
+        # 원본 일정을 /extract-schedule 형태로 변환
+        schedule_data_for_enhancement = {
+            "fixedSchedules": request.schedules,
+            "flexibleSchedules": []
+        }
+        
+        # 🔥 /extract-schedule에서 사용하는 그 함수를 그대로 호출
+        enhanced_data = await asyncio.wait_for(
+            enhance_locations_with_triple_api(schedule_data_for_enhancement),
+            timeout=30
+        )
         
         step_time = time.time() - step_start
-        force_log(f"🎤 생성된 음성 입력: '{synthetic_voice_input}' ({step_time:.3f}초)")
+        force_log(f"✅ /extract-schedule 방식 위치 보강 완료 ({step_time:.2f}초)")
         
-        # Step 3: 🔥 LangChain 체인 호출 (기존 함수 재사용)
+        # 보강 결과 로깅
+        for i, schedule in enumerate(enhanced_data.get("fixedSchedules", [])):
+            original_location = request.schedules[i].get("location", "") if i < len(request.schedules) else ""
+            new_location = schedule.get("location", "")
+            
+            if new_location != original_location:
+                force_log(f"  📍 위치 업데이트: '{schedule.get('name')}'")
+                force_log(f"    이전: '{original_location}'")
+                force_log(f"    이후: '{new_location[:50]}...'")
+        
+        # Step 3: 🔥 /extract-schedule의 다중 옵션 생성 방식 활용
         step_start = time.time()
-        force_log("Step 3: LangChain 체인 호출")
+        force_log("Step 3: /extract-schedule 방식으로 다중 옵션 생성")
         
-        try:
-            force_log("🔗 LangChain 체인 생성 시작...")
-            chain = create_schedule_chain(synthetic_voice_input)
-            force_log("✅ LangChain 체인 생성 완료")
-            
-            force_log("🚀 LangChain 체인 호출 시작...")
-            llm_result = await asyncio.wait_for(
-                run_in_executor(lambda: chain.invoke({"input": synthetic_voice_input})),
-                timeout=15
-            )
-            
-            force_log("📩 LangChain 체인 응답 수신 성공")
-            
-            if isinstance(llm_result, dict):
-                base_schedule_data = llm_result
-            else:
-                base_schedule_data = safe_parse_json(str(llm_result))
-                
-        except Exception as e:
-            force_log(f"❌ LangChain 체인 호출 실패: {e}")
-            
-            # 폴백: 원본 일정 구조 재사용
-            base_schedule_data = {
-                "fixedSchedules": [],
-                "flexibleSchedules": []
-            }
-            
-            for i, schedule in enumerate(request.schedules):
-                fixed_schedule = {
-                    "id": schedule.get("id", f"fallback_{int(time.time() * 1000)}_{i}"),
-                    "name": schedule.get("name", "일정"),
-                    "type": "FIXED",
-                    "duration": schedule.get("duration", 60),
-                    "priority": schedule.get("priority", i + 1),
-                    "location": schedule.get("location", ""),
-                    "latitude": schedule.get("latitude", 37.5665),
-                    "longitude": schedule.get("longitude", 126.9780),
-                    "startTime": schedule.get("startTime", ""),
-                    "endTime": schedule.get("endTime", "")
-                }
-                base_schedule_data["fixedSchedules"].append(fixed_schedule)
+        # 가짜 음성 입력 생성 (다중 옵션 생성용)
+        synthetic_voice_input = create_synthetic_voice_for_options(enhanced_data, expandable_schedules)
+        force_log(f"🎤 다중 옵션용 음성 입력: '{synthetic_voice_input}'")
+        
+        # 🔥 /extract-schedule에서 사용하는 다중 옵션 생성 로직 활용
+        use_dynamic_system = should_use_dynamic_system(enhanced_data, synthetic_voice_input)
+        
+        if use_dynamic_system:
+            force_log("🤖 DynamicRouteOptimizer 사용 (브랜드 기반)")
+            optimizer = DynamicRouteOptimizer(KAKAO_REST_API_KEY)
+            final_result = await optimizer.create_multiple_options(enhanced_data, synthetic_voice_input)
+        else:
+            force_log("📋 기존 시스템 사용")
+            final_result = await create_traditional_options(enhanced_data, synthetic_voice_input)
         
         step_time = time.time() - step_start
         force_log(f"Step 3 완료 ({step_time:.2f}초)")
         
-        # Step 4: 🔥 원본 데이터와 병합
+        # Step 4: 원본 구조 보존
         step_start = time.time()
-        force_log("Step 4: 원본 데이터와 병합")
+        force_log("Step 4: 원본 구조 보존")
         
-        enhanced_data = merge_with_original_data(base_schedule_data, request.schedules)
+        for option in final_result.get("options", []):
+            for j, schedule in enumerate(option.get("fixedSchedules", [])):
+                if j < len(request.schedules):
+                    original = request.schedules[j]
+                    
+                    # 핵심 필드들 완전 복사
+                    preserve_fields = ["startTime", "endTime", "duration", "priority", "type"]
+                    for field in preserve_fields:
+                        if field in original:
+                            schedule[field] = original[field]
         
         step_time = time.time() - step_start
-        force_log(f"✅ 데이터 병합 완료 ({step_time:.3f}초)")
-        
-        # Step 5: 🔥 위치 정보가 없는 일정만 재검색
-        step_start = time.time()
-        force_log("Step 5: 필요한 일정만 위치 재검색")
-        
-        location_enhanced_count = await enhance_missing_locations(enhanced_data)
-        
-        step_time = time.time() - step_start
-        force_log(f"✅ 위치 재검색 완료: {location_enhanced_count}개 업데이트 ({step_time:.2f}초)")
-        
-        # Step 6: 🔥 범용 다중 옵션 생성
-        step_start = time.time()
-        force_log("Step 6: 범용 다중 옵션 생성")
-        
-        final_result = await create_universal_multiple_options(enhanced_data, expandable_schedules, synthetic_voice_input)
-        
-        step_time = time.time() - step_start
-        force_log(f"Step 6 완료 ({step_time:.2f}초)")
-        
-        # Step 7: 🔥 원본 구조 보존
-        step_start = time.time()
-        force_log("Step 7: 원본 구조 보존")
-        
-        preserve_original_structure(final_result, request.schedules)
-        
-        step_time = time.time() - step_start
-        force_log(f"Step 7 완료 ({step_time:.3f}초)")
+        force_log(f"Step 4 완료 ({step_time:.3f}초)")
         
         # 최종 결과
         total_time = time.time() - total_start_time
         final_option_count = len(final_result.get('options', []))
-        force_log(f"=== 범용 다중 옵션 시스템 완료: {final_option_count}개 옵션 생성, 총 {total_time:.2f}초 ===")
+        force_log(f"=== 검증된 방식 다중 옵션 시스템 완료: {final_option_count}개 옵션, 총 {total_time:.2f}초 ===")
         
         return UnicodeJSONResponse(content=final_result, status_code=200)
         
     except Exception as e:
         total_time = time.time() - total_start_time
         force_log(f"❌ 전체 프로세스 실패 ({total_time:.2f}초): {e}")
+        import traceback
+        force_log(f"상세 오류: {traceback.format_exc()}")
         
-        # 빠른 폴백
+        # 폴백
         fallback_options = create_fallback_options(request.schedules)
         return UnicodeJSONResponse(content={"options": fallback_options}, status_code=200)
-
+def create_synthetic_voice_for_options(enhanced_data: Dict, expandable_schedules: List[Dict]) -> str:
+    """다중 옵션 생성을 위한 합성 음성 입력 생성"""
+    
+    # 지역 정보 추출
+    region = extract_region_from_schedules(enhanced_data.get("fixedSchedules", []))
+    
+    # 확장 가능한 일정들 기반으로 음성 입력 생성
+    items = []
+    for exp in expandable_schedules:
+        category = exp["category"]
+        if category == "쇼핑":
+            items.append("편의점")
+        elif category == "식사":
+            items.append("맛집")
+        elif category == "카페":
+            items.append("카페")
+        elif category == "약국":
+            items.append("약국")
+        elif category == "은행":
+            items.append("은행")
+        else:
+            items.append(category)
+    
+    if items:
+        items_text = ", ".join(items)
+        return f"{region}에서 {items_text} 다양한 옵션을 원합니다. 각각 다른 곳들로 추천해주세요."
+    else:
+        return f"{region}에서 다양한 편의시설 옵션을 원합니다."
 
 def identify_expandable_schedules(schedules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """모든 종류의 확장 가능한 일정 감지"""
