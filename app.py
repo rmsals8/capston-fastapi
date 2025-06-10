@@ -4676,11 +4676,10 @@ def extract_reference_location(enhanced_data: Dict) -> str:
 
 
 def extract_region_from_schedules(schedules: List[Dict[str, Any]]) -> str:
-    """일정들에서 KOREA_REGIONS를 활용해 지역 추출"""
+    """일정들에서 KOREA_REGIONS를 활용해 지역 추출 - 🔥 우선순위 수정"""
     
     print(f"🗺️ 지역 추출 시작: {len(schedules)}개 일정 분석")
     
-    # 🔥 KOREA_REGIONS의 모든 지역 정보 활용
     for schedule in schedules:
         location = schedule.get("location", "")
         if not location:
@@ -4688,27 +4687,43 @@ def extract_region_from_schedules(schedules: List[Dict[str, Any]]) -> str:
             
         print(f"   분석 중: '{schedule.get('name', 'N/A')}' @ '{location}'")
         
-        # 🔥 KOREA_REGIONS에서 전국 검색
+        # 🔥 KOREA_REGIONS에서 전국 검색 - 우선순위 수정
         for region_name, districts in KOREA_REGIONS.items():
             
-            # 1) 시/도 이름 직접 매칭 (완전한 이름)
+            # 🔥 1순위: 시/도 이름 직접 매칭 (가장 높은 우선순위)
             if region_name in location:
-                print(f"   ✅ 시/도 완전 매칭: {region_name}")
-                return extract_short_region_name(region_name)
-            
-            # 2) 시/도 이름 축약형 매칭 (예: 경상남도 → 경남)
-            short_region = extract_short_region_name(region_name)
-            if short_region in location and short_region != region_name:
-                print(f"   ✅ 시/도 축약 매칭: {short_region} (원본: {region_name})")
+                short_region = extract_short_region_name(region_name)
+                print(f"   ✅ 시/도 완전 매칭: {region_name} → {short_region}")
                 return short_region
             
-            # 3) 구/시/군 매칭으로 시/도 역추적
+            # 🔥 2순위: 시/도 축약형 매칭 
+            short_region = extract_short_region_name(region_name)
+            if short_region in location and short_region != region_name and len(short_region) > 2:
+                print(f"   ✅ 시/도 축약 매칭: {short_region} (원본: {region_name})")
+                return short_region
+        
+        # 🔥 3순위: 구/시/군 매칭 (마지막 우선순위, 동명이인 방지 로직 추가)
+        for region_name, districts in KOREA_REGIONS.items():
             for district in districts:
                 if district in location:
-                    print(f"   ✅ 구/시/군 매칭: {district} → {short_region}")
-                    return short_region
+                    # 🔥 동명이인 구 체크 (중구, 남구, 북구, 서구, 동구)
+                    common_districts = ["중구", "남구", "북구", "서구", "동구"]
+                    
+                    if district in common_districts:
+                        # 동명이인 가능성 높은 구는 시/도 정보가 함께 있을 때만 매칭
+                        short_region = extract_short_region_name(region_name)
+                        if region_name in location or short_region in location:
+                            print(f"   ✅ 동명이인 구 + 시/도 확인: {district} + {region_name} → {short_region}")
+                            return short_region
+                        else:
+                            print(f"   ⚠️ 동명이인 구 제외: {district} (시/도 정보 없음)")
+                            continue
+                    else:
+                        # 고유한 구/시/군은 바로 매칭
+                        short_region = extract_short_region_name(region_name)
+                        print(f"   ✅ 고유 구/시/군 매칭: {district} → {short_region}")
+                        return short_region
     
-    # 🔥 기본값: 서울 (전국 어디서도 매칭되지 않은 경우)
     print(f"   ⚠️ 지역 매칭 실패, 기본값 사용: 서울")
     return "서울"
 
